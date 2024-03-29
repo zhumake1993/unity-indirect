@@ -1,0 +1,44 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel PopulateVisibilityAndIndirectArg
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
+
+struct IndirectArgs
+{
+    uint vertexCountPerInstance;
+    uint instanceCount;
+    uint startVertex;
+    uint startInstance;
+};
+
+RWStructuredBuffer<IndirectArgs> IndirectArgsBuffer;
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndexBuffer;
+
+// x: instance offset
+StructuredBuffer<int4> BatchDescriptorBuffer;
+
+// x: visible index
+RWStructuredBuffer<int4> VisibilityBuffer;
+
+[numthreads(64,1,1)]
+void PopulateVisibilityAndIndirectArg (uint3 id : SV_DispatchThreadID)
+{
+    int readIndex = InstanceIndexBuffer.DecrementCounter();
+    
+    if (readIndex < 0)
+        return;
+
+    int instanceIndex = InstanceIndexBuffer[readIndex].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+
+    int indirectID = instanceDescriptor.center_indirectID.w;
+    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
+        
+    int visibleCount = 0;
+    InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+
+    VisibilityBuffer[instanceOffset + visibleCount].x = instanceIndex;
+}

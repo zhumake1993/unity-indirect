@@ -1,0 +1,46 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel FrustumCulling
+
+#pragma multi_compile_local _ _DISABLE
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/FrustumCullingFunction.hlsl"
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndexInputBuffer;
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndexOutputBuffer;
+
+[numthreads(64,1,1)]
+void FrustumCulling (uint3 id : SV_DispatchThreadID)
+{
+    int readIndex = InstanceIndexInputBuffer.DecrementCounter();
+    
+    if (readIndex < 0)
+        return;
+
+    int writeIndex = 0;
+
+    int instanceIndex = InstanceIndexInputBuffer[readIndex].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+
+    #if _DISABLE
+
+        writeIndex = InstanceIndexOutputBuffer.IncrementCounter();
+        InstanceIndexOutputBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+        return;
+
+    #endif
+
+    AABB aabb;
+    aabb.center = instanceDescriptor.center_indirectID.xyz;
+    aabb.extent = instanceDescriptor.extents_dataOffset.xyz;
+
+    if (FrustumCullNoPartial(aabb) == kCullingResultOut)
+        return;
+    
+    writeIndex = InstanceIndexOutputBuffer.IncrementCounter();
+    InstanceIndexOutputBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+}

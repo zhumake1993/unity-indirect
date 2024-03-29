@@ -1,0 +1,130 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel QuadTreeCulling
+
+#pragma multi_compile_local _ _DISABLE
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/CullingCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/QuadTreeCommon.hlsl"
+
+static const int kPowOfTwo[8] = {1,2,4,8,16,32,64,128};
+
+int4 _TotalInstanceIndexCount;
+
+// xyz: max lod node range
+// w: max lod
+int4 _QuadTreeLodParam;
+
+int4 _QuadTreeLodOffset[kQuadTreeMaxLodNum];
+
+StructuredBuffer<int4> QuadTreeNodeVisibilityBuffer;
+
+// x: instance index
+StructuredBuffer<int4> InstanceIndexInputBuffer;
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndexFinalBuffer;
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndexTodoBuffer;
+
+uint CullSubNode(InstanceDescriptor instanceDescriptor, uint4 cullingResult)
+{
+    uint leftMask = instanceDescriptor.quadTreeSubNodeMask.x;
+    uint rightMask = instanceDescriptor.quadTreeSubNodeMask.y;
+
+    if ((leftMask & cullingResult.z) != 0 || (rightMask & cullingResult.w) != 0)
+        return kCullingResultPartial;
+
+    if ((leftMask & cullingResult.x) == leftMask && (rightMask & cullingResult.y) == rightMask)
+        return kCullingResultOut;
+
+    if ((leftMask & cullingResult.x) == 0 && (rightMask & cullingResult.y) == 0)
+        return kCullingResultIn;
+
+    return kCullingResultPartial;
+}
+
+[numthreads(64,1,1)]
+void QuadTreeCulling (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < (uint)_TotalInstanceIndexCount.x)
+    {
+        int instanceIndex = InstanceIndexInputBuffer[id.x].x;
+        
+        InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+        int4 quadTreeLod = instanceDescriptor.quadTreeNodeCoordAndLod;
+
+        int writeIndex;
+        int fitLod = quadTreeLod.w;
+
+        #if _DISABLE
+
+            writeIndex = InstanceIndexTodoBuffer.IncrementCounter();
+            InstanceIndexTodoBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+            return;
+
+        #endif
+        
+        if (fitLod < 0)
+        {
+            writeIndex = InstanceIndexTodoBuffer.IncrementCounter();
+            InstanceIndexTodoBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+        }
+        else
+        {
+            int maxLod = _QuadTreeLodParam.w;
+            int3 maxLodNodeRange = _QuadTreeLodParam.xyz;
+            
+            for (int lod = maxLod; lod >= fitLod; lod--)
+            {
+                uint3 nodeCoord = quadTreeLod.xyz;
+                nodeCoord.xz /= kPowOfTwo[lod - fitLod];
+
+                int3 lodNodeRange = pow(2, maxLod - lod) * maxLodNodeRange;
+                int nodeIndex = nodeCoord.y * lodNodeRange.x * lodNodeRange.z + nodeCoord.z * lodNodeRange.x + nodeCoord.x;
+                int lodOffset = _QuadTreeLodOffset[lod].x;
+                uint4 cullingResult = QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex];
+
+                if (cullingResult.x == kCullingResultIn
+                 && cullingResult.y == kCullingResultIn
+                 && cullingResult.z == kCullingResultIn
+                 && cullingResult.w == kCullingResultIn)
+                {
+                    writeIndex = InstanceIndexFinalBuffer.IncrementCounter();
+                    InstanceIndexFinalBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+                    return;
+                }
+
+                if (cullingResult.x == kCullingResultOut
+                 && cullingResult.y == kCullingResultOut
+                 && cullingResult.z == kCullingResultOut
+                 && cullingResult.w == kCullingResultOut)
+                {
+                    return;
+                }
+
+                if (lod == 0)
+                {
+                    uint subNodeCullingResult = CullSubNode(instanceDescriptor, cullingResult);
+
+                    if (subNodeCullingResult == kCullingResultIn)
+                    {
+                        writeIndex = InstanceIndexFinalBuffer.IncrementCounter();
+                        InstanceIndexFinalBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+                        return;
+                    }
+
+                    if (subNodeCullingResult == kCullingResultOut)
+                    {
+                        return;
+                    }
+                }
+            }
+                
+            writeIndex = InstanceIndexTodoBuffer.IncrementCounter();
+            InstanceIndexTodoBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+        }
+    }
+}

@@ -1,0 +1,11 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel AdjustDispatchArg
+
+RWStructuredBuffer<uint> DispatchArgsBuffer;
+
+[numthreads(1,1,1)]
+void AdjustDispatchArg (uint3 id : SV_DispatchThreadID)
+{
+    DispatchArgsBuffer[0] = (DispatchArgsBuffer[0] + 63) / 64;
+}

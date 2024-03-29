@@ -1,0 +1,154 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel QuadTreeBuildNode
+#pragma kernel QuadTreeBuildSubNode
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/FrustumCullingFunction.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/QuadTreeCommon.hlsl"
+
+float4 _QuadTreeWorldOrigin;
+int4 _QuadTreeMaxLodRange;
+
+// x: current lod
+// y: max lod
+int4 _QuadTreeLodParam;
+
+int4 _QuadTreeLodOffset[kQuadTreeMaxLodNum];
+
+RWStructuredBuffer<int4> QuadTreeNodeIndexInputBuffer;
+
+RWStructuredBuffer<int4> QuadTreeNodeIndexOutputBuffer;
+
+RWStructuredBuffer<int4> QuadTreeNodeVisibilityBuffer;
+
+//RWStructuredBuffer<uint> DispatchArgsBuffer;
+
+[numthreads(64,1,1)]
+void QuadTreeBuildNode (uint3 id : SV_DispatchThreadID)
+{
+    int readIndex = QuadTreeNodeIndexInputBuffer.DecrementCounter();
+    
+    if (readIndex < 0)
+        return;
+
+    // if (id.x < _IndexSegmentCount.x)
+    // {
+    //     
+    // }
+    //InterlockedAdd(DispatchArgsBuffer[0], 1);
+
+    int3 nodeCoord = QuadTreeNodeIndexInputBuffer[readIndex].xyz;
+    
+    int currentLod = _QuadTreeLodParam.x;
+    int maxLod = _QuadTreeLodParam.y;
+    float lodNodeSize = pow(2, currentLod) * kQuadTreeLod0NodeSize;
+    int3 lodNodeRange = pow(2, maxLod - currentLod) * _QuadTreeMaxLodRange.xyz;
+        
+    AABB aabb;
+    aabb.center.x = nodeCoord.x * lodNodeSize + 0.5 * lodNodeSize + _QuadTreeWorldOrigin.x;
+    aabb.center.y = nodeCoord.y * kQuadTreeNodeHeight + 0.5 * kQuadTreeNodeHeight + _QuadTreeWorldOrigin.y;
+    aabb.center.z = nodeCoord.z * lodNodeSize + 0.5 * lodNodeSize + _QuadTreeWorldOrigin.z;
+    aabb.extent = float3(lodNodeSize, kQuadTreeNodeHeight, lodNodeSize) * 0.5;
+    
+    uint cullingResult = FrustumCull(aabb);
+
+    int nodeIndex = nodeCoord.y * lodNodeRange.x * lodNodeRange.z + nodeCoord.z * lodNodeRange.x + nodeCoord.x;
+    int lodOffset = _QuadTreeLodOffset[currentLod].x;
+    QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex] = int4(cullingResult, cullingResult, cullingResult, cullingResult);
+
+    if (cullingResult == kCullingResultPartial)
+    {
+        int writeIndex;
+
+        if (currentLod == 0)
+        {
+            writeIndex = QuadTreeNodeIndexOutputBuffer.IncrementCounter();
+            QuadTreeNodeIndexOutputBuffer[writeIndex] = int4(nodeCoord.x, nodeCoord.y, nodeCoord.z, 0);
+        }
+        else
+        {
+            writeIndex = QuadTreeNodeIndexOutputBuffer.IncrementCounter();
+            QuadTreeNodeIndexOutputBuffer[writeIndex] = int4(nodeCoord.x * 2, nodeCoord.y, nodeCoord.z * 2, 0);
+
+            writeIndex = QuadTreeNodeIndexOutputBuffer.IncrementCounter();
+            QuadTreeNodeIndexOutputBuffer[writeIndex] = int4(nodeCoord.x * 2 + 1, nodeCoord.y, nodeCoord.z * 2, 0);
+
+            writeIndex = QuadTreeNodeIndexOutputBuffer.IncrementCounter();
+            QuadTreeNodeIndexOutputBuffer[writeIndex] = int4(nodeCoord.x * 2, nodeCoord.y, nodeCoord.z * 2 + 1, 0);
+
+            writeIndex = QuadTreeNodeIndexOutputBuffer.IncrementCounter();
+            QuadTreeNodeIndexOutputBuffer[writeIndex] = int4(nodeCoord.x * 2 + 1, nodeCoord.y, nodeCoord.z * 2 + 1, 0);
+        }
+    }
+}
+
+[numthreads(8,1,8)]
+void QuadTreeBuildSubNode (uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
+{
+    int3 nodeCoord = QuadTreeNodeIndexOutputBuffer[groupID.x].xyz;
+    
+    AABB aabb;
+    aabb.center.x = nodeCoord.x * kQuadTreeLod0NodeSize + _QuadTreeWorldOrigin.x + groupThreadID.x * kQuadTreeSubNodeSize + 0.5 * kQuadTreeSubNodeSize;
+    aabb.center.y = nodeCoord.y * kQuadTreeNodeHeight + 0.5 * kQuadTreeNodeHeight + _QuadTreeWorldOrigin.y;
+    aabb.center.z = nodeCoord.z * kQuadTreeLod0NodeSize + _QuadTreeWorldOrigin.z + groupThreadID.z * kQuadTreeSubNodeSize + 0.5 * kQuadTreeSubNodeSize;
+    aabb.extent = float3(kQuadTreeSubNodeSize, kQuadTreeNodeHeight, kQuadTreeSubNodeSize) * 0.5;
+    
+    uint cullingResult = FrustumCull(aabb);
+    
+    int maxLod = _QuadTreeLodParam.y;
+    int3 lodNodeRange = pow(2, maxLod) * _QuadTreeMaxLodRange.xyz;
+    int nodeIndex = nodeCoord.y * lodNodeRange.x * lodNodeRange.z + nodeCoord.z * lodNodeRange.x + nodeCoord.x;
+    int lodOffset = _QuadTreeLodOffset[0].x;
+    
+    int subNodeIndex = groupThreadID.z * (kQuadTreeLod0NodeSize / kQuadTreeSubNodeSize) + groupThreadID.x;
+    
+    if (cullingResult == kCullingResultPartial)
+    {
+        if (subNodeIndex < 32)
+        {
+            int mask = 1 << subNodeIndex;
+            InterlockedOr(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].w, mask);
+        }
+        else
+        {
+            subNodeIndex -= 32;
+            int mask = 1 << subNodeIndex;
+            InterlockedOr(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].z, mask);
+        }
+    }
+    else
+    {
+        if (subNodeIndex < 32)
+        {
+            int mask = 1 << subNodeIndex;
+            
+            InterlockedAnd(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].w, ~mask);
+            
+            if (cullingResult == kCullingResultIn)
+            {
+                InterlockedAnd(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].y, ~mask);
+            }
+            else
+            {
+                InterlockedOr(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].y, mask);
+            }
+        }
+        else
+        {
+            subNodeIndex -= 32;
+    
+            int mask = 1 << subNodeIndex;
+            
+            InterlockedAnd(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].z, ~mask);
+            
+            if (cullingResult == kCullingResultIn)
+            {
+                InterlockedAnd(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].x, ~mask);
+            }
+            else
+            {
+                InterlockedOr(QuadTreeNodeVisibilityBuffer[lodOffset + nodeIndex].x, mask);
+            }
+        }
+    }
+}

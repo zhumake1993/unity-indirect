@@ -1,0 +1,33 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel PopulateInstanceIndex
+
+// x: index segment count
+uint4 _IndexSegmentCount;
+
+// x: instance index start
+// y: instance count
+StructuredBuffer<int4> IndexSegmentBuffer;
+
+RWStructuredBuffer<int4> InstanceIndexOffsetBuffer;
+
+// x: instance index
+RWStructuredBuffer<int4> InstanceIndicesBuffer;
+
+[numthreads(64,1,1)]
+void PopulateInstanceIndex (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _IndexSegmentCount.x)
+    {
+        int startIndex = IndexSegmentBuffer[id.x].x;
+        int instanceCount = IndexSegmentBuffer[id.x].y;
+
+        int offset = 0;
+        InterlockedAdd(InstanceIndexOffsetBuffer[0].x, instanceCount, offset);
+        
+        for (int i = 0; i < instanceCount; i++)
+        {
+            InstanceIndicesBuffer[offset + i].x = startIndex + i;
+        }
+    }
+}
