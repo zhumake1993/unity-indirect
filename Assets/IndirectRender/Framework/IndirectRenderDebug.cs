@@ -22,6 +22,9 @@ namespace ZGame.Indirect
     {
         public IndirectRenderStats GetIndirectRenderStats()
         {
+            if (!_initialized)
+                return new IndirectRenderStats();
+
             IndirectRenderStats stats = new IndirectRenderStats
             {
                 IndirectRenderSetting = _unmanaged->Setting,
@@ -58,12 +61,18 @@ namespace ZGame.Indirect
 
         public void DrawGizmo()
         {
+            if (!_initialized)
+                return;
+
             if (_drawQuadTree)
                 _quadTreeBuildPass.DrawGizmo();
         }
 
         public void CreateGameobject()
         {
+            if (!_initialized)
+                return;
+
             GameObject debugRoot = CreateGameObject("Indirect", null);
 
             Dictionary<Material, Material> materialMap = new Dictionary<Material, Material>();

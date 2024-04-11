@@ -62,6 +62,12 @@ public class IndirectRenderTest : MonoBehaviour
 
     void Start()
     {
+#if ZGAME_INDIRECT_SHADOW
+        Debug.Log("ZGAME_INDIRECT_SHADOW is On");
+#else
+        Debug.Log("ZGAME_INDIRECT_SHADOW is Off");
+#endif
+
         _indirectRender = new IndirectRender();
 
         IndirectRenderSetting indirectRenderSetting = new IndirectRenderSetting()
@@ -174,7 +180,6 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (Draw)
         {
-            _indirectRender.UpdateCameraFrustumPlanes(Camera.main);
             _indirectRender.Dispatch();
         }
     }
@@ -281,7 +286,7 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            Add(0, 0, 1, 0);
+            //Add(0, 0, 1000, 0);
             Add(1, 0, 1, 1);
         }
 

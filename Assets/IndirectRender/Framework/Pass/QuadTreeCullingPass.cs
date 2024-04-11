@@ -37,7 +37,7 @@ namespace ZGame.Indirect
             _instanceIndexTodoBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter,
                 _setting.InstanceCapacity, Utility.c_SizeOfInt4);
             _instanceIndexFinalBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter,
-                _setting.InstanceCapacity, Utility.c_SizeOfInt4);
+                _setting.InstanceCapacity * Utility.c_MaxCullingSet, Utility.c_SizeOfInt4);
 
             _quadTreeLodParam[0] = _setting.QuadTreeSetting.MaxLodRange.x;
             _quadTreeLodParam[1] = _setting.QuadTreeSetting.MaxLodRange.y;
@@ -89,7 +89,7 @@ namespace ZGame.Indirect
         }
 
         static readonly ProfilerMarker s_quadTreeCullingMarker = new ProfilerMarker("QuadTreeCulling");
-        public void BuildCommandBuffer(CommandBuffer cmd)
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper)
         {
             cmd.BeginSample(s_quadTreeCullingMarker);
 

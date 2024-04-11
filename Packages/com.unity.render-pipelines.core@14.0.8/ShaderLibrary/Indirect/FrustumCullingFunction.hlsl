@@ -17,15 +17,17 @@ struct AABB
     float3 extent;
 };
 
+int4 _CullingParameters;
+int4 _PackedPlaneOffset;
 int4 _PackedPlaneCount;
-float4 _PackedPlanes[kMaxPackedCullingPlaneCount];
+float4 _PackedPlanes[kMaxPackedPlaneCount * 4];
 
 float4 Dot4(float4 xs, float4 ys, float4 zs, float4 mx, float4 my, float4 mz)
 {
     return xs * mx + ys * my + zs * mz;
 }
 
-uint FrustumCull(AABB aabb)
+uint FrustumCull(AABB aabb, int splitIndex)
 {
     float4 mx = aabb.center.xxxx;
     float4 my = aabb.center.yyyy;
@@ -38,7 +40,10 @@ uint FrustumCull(AABB aabb)
     int4 outCounts = 0;
     int4 inCounts = 0;
 
-    for (int i = 0; i < _PackedPlaneCount.x; i++)
+    int offset = _PackedPlaneOffset[splitIndex];
+    int count = _PackedPlaneCount[splitIndex];
+
+    for (int i = offset; i < offset + count; i++)
     {
         PlanePacket4 p;
         p.xs = _PackedPlanes[i * 4 + 0];
@@ -62,7 +67,7 @@ uint FrustumCull(AABB aabb)
         return (inCount == 4 * _PackedPlaneCount.x) ? kCullingResultIn : kCullingResultPartial;
 }
 
-uint FrustumCullNoPartial(AABB aabb)
+uint FrustumCullNoPartial(AABB aabb, int splitIndex)
 {
     float4 mx = aabb.center.xxxx;
     float4 my = aabb.center.yyyy;
@@ -73,8 +78,11 @@ uint FrustumCullNoPartial(AABB aabb)
     float4 ez = aabb.extent.zzzz;
 
     int4 masks = 0;
+
+    int offset = _PackedPlaneOffset[splitIndex];
+    int count = _PackedPlaneCount[splitIndex];
     
-    for (int i = 0; i < _PackedPlaneCount.x; i++)
+    for (int i = offset; i < offset + count; i++)
     {
         PlanePacket4 p;
         p.xs = _PackedPlanes[i * 4 + 0];

@@ -4,6 +4,8 @@
 
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
 
+#define kMaxCullingSet 5
+
 struct IndirectArgs
 {
     uint vertexCountPerInstance;
@@ -34,11 +36,17 @@ void PopulateVisibilityAndIndirectArg (uint3 id : SV_DispatchThreadID)
     int instanceIndex = InstanceIndexBuffer[readIndex].x;
     InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
 
-    int indirectID = instanceDescriptor.center_indirectID.w;
-    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-        
-    int visibleCount = 0;
-    InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+    bool isCamera = InstanceIndexBuffer[readIndex].y == 0;
+    int splitIndex = InstanceIndexBuffer[readIndex].z;
 
+    int indirectID = instanceDescriptor.center_indirectID.w;
+    int indirectArgsIndex = indirectID * kMaxCullingSet + splitIndex;
+ 
+    int visibleCount = 0;
+    InterlockedAdd(IndirectArgsBuffer[indirectArgsIndex].instanceCount, 1, visibleCount);
+
+    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
+    int batchInstanceCount = BatchDescriptorBuffer[indirectID].y;
+    instanceOffset += batchInstanceCount * splitIndex;
     VisibilityBuffer[instanceOffset + visibleCount].x = instanceIndex;
 }

@@ -9,6 +9,6 @@ namespace ZGame.Indirect
     {
         public void Dispose();
         public void Prepare(IndirectRenderUnmanaged* _unmanaged);
-        public void BuildCommandBuffer(CommandBuffer cmd);
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper);
     }
 }

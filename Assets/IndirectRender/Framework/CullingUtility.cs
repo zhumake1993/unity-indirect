@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace ZGame.Indirect
 {
@@ -102,20 +103,85 @@ namespace ZGame.Indirect
         public const int c_Size = sizeof(float) * 16;
     }
 
+    public struct CullingPlanes
+    {
+        public UnsafeList<Plane> Planes;
+        public UnsafeList<int> Splits;
+
+        public void Dispose()
+        {
+            Planes.Dispose();
+            Splits.Dispose();
+        }
+    }
+
     public static class CullingUtility
     {
-        public static NativeArray<PlanePacket4> BuildSOAPlanePackets(NativeArray<Plane> cullingPlanes, Allocator allocator)
+        public static CullingPlanes CalculateCullingParameters(ref BatchCullingContext cullingContext, Allocator allocator)
+        {
+            CullingPlanes cullingPlanes = new CullingPlanes();
+
+            NativeArray<Plane> planes = cullingContext.cullingPlanes;
+            NativeArray<CullingSplit> splits = cullingContext.cullingSplits;
+
+            cullingPlanes.Planes = new UnsafeList<Plane>(planes.Length, allocator, NativeArrayOptions.UninitializedMemory);
+            for (int i = 0; i < planes.Length; ++i)
+            {
+                cullingPlanes.Planes.Add(planes[i]);
+            }
+
+            cullingPlanes.Splits = new UnsafeList<int>(splits.Length, allocator, NativeArrayOptions.UninitializedMemory);
+            for (int i = 0; i < splits.Length; ++i)
+            {
+                cullingPlanes.Splits.Add(splits[i].cullingPlaneCount);
+            }
+
+            return cullingPlanes;
+        }
+
+        public static UnsafeList<UnsafeList<PlanePacket4>> BuildPlanePackets(ref CullingPlanes cullingPlanes, Allocator allocator)
+        {
+            UnsafeList<Plane> planes = cullingPlanes.Planes;
+            UnsafeList<int> splits = cullingPlanes.Splits;
+
+            UnsafeList<UnsafeList<PlanePacket4>> packedPlanes = new UnsafeList<UnsafeList<PlanePacket4>>(splits.Length, allocator);
+
+            int planeOffset = 0;
+            UnsafeList<Plane> splitCullingPlanes = new UnsafeList<Plane>(planes.Length, allocator);
+
+            for (int iSplit = 0; iSplit < splits.Length; ++iSplit)
+            {
+                int planeCount = splits[iSplit];
+                for (int iPlane = 0; iPlane < planeCount; ++iPlane)
+                {
+                    splitCullingPlanes.Add(planes[planeOffset + iPlane]);
+                }
+
+                UnsafeList<PlanePacket4> splitPackedPlanes = BuildSOAPlanePackets(splitCullingPlanes, allocator);
+                packedPlanes.Add(splitPackedPlanes);
+
+                planeOffset += planeCount;
+                splitCullingPlanes.Clear();
+            }
+
+            splitCullingPlanes.Dispose();
+
+            return packedPlanes;
+        }
+
+        public static UnsafeList<PlanePacket4> BuildSOAPlanePackets(UnsafeList<Plane> cullingPlanes, Allocator allocator)
         {
             int cullingPlaneCount = cullingPlanes.Length;
             int packetCount = (cullingPlaneCount + 3) >> 2;
-            var planes = new NativeArray<PlanePacket4>(packetCount, allocator, NativeArrayOptions.UninitializedMemory);
+            var planes = new UnsafeList<PlanePacket4>(packetCount, allocator, NativeArrayOptions.UninitializedMemory);
+            planes.Length = packetCount;
 
             InitializeSOAPlanePackets(planes, cullingPlanes);
 
             return planes;
         }
 
-        public static void InitializeSOAPlanePackets(NativeArray<PlanePacket4> planes, NativeArray<Plane> cullingPlanes)
+        public static void InitializeSOAPlanePackets(UnsafeList<PlanePacket4> planes, UnsafeList<Plane> cullingPlanes)
         {
             int cullingPlaneCount = cullingPlanes.Length;
             int packetCount = planes.Length;

@@ -38,7 +38,7 @@ namespace ZGame.Indirect
             _instanceDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, InstanceDescriptor.c_Size);
             _batchDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.BatchCapacity, Utility.c_SizeOfInt4);
             _instanceDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)(setting.InstanceDataMaxSizeBytes * setting.InstanceDataNumMaxSizeBlocks) / Utility.c_SizeOfFloat4, Utility.c_SizeOfFloat4);
-            _visibilityBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, Utility.c_SizeOfInt4);
+            _visibilityBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.InstanceCapacity * Utility.c_MaxCullingSet, Utility.c_SizeOfInt4);
 
             _mpb = new MaterialPropertyBlock();
             _mpb.SetBuffer(s_instanceDescriptorBufferID, _instanceDescriptorBuffer);
@@ -97,6 +97,7 @@ namespace ZGame.Indirect
                 RenderParams renderParams = new RenderParams(material);
                 renderParams.worldBounds = new Bounds(Vector3.zero, 10000 * Vector3.one);
                 renderParams.matProps = _mpb;
+                renderParams.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
 
                 Graphics.RenderPrimitivesIndirect(renderParams, MeshTopology.Triangles, _indirectArgsBuffer, 1, indirectID);
             }

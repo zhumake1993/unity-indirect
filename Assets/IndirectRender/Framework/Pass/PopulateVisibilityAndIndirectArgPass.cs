@@ -36,7 +36,7 @@ namespace ZGame.Indirect
 
             _dispatchHelper = dispatchHelper;
 
-            _indirectArgsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, setting.BatchCapacity, GraphicsBuffer.IndirectDrawArgs.size);
+            _indirectArgsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, setting.BatchCapacity * Utility.c_MaxCullingSet, GraphicsBuffer.IndirectDrawArgs.size);
 
             _PopulateVisibilityAndIndirectArgCS.SetBuffer(_PopulateVisibilityAndIndirectArgKernel, s_indirectArgsBufferID, _indirectArgsBuffer);
         }
@@ -69,11 +69,11 @@ namespace ZGame.Indirect
         public void Prepare(IndirectRenderUnmanaged* _unmanaged)
         {
             _batchDescriptorBuffer.SetData(_unmanaged->BatchDescriptorArray, 0, 0, _unmanaged->MaxIndirectID + 1);
-            _indirectArgsBuffer.SetData(_unmanaged->IndirectArgsArray, 0, 0, _unmanaged->MaxIndirectID + 1);
+            _indirectArgsBuffer.SetData(_unmanaged->IndirectArgsArray, 0, 0, (_unmanaged->MaxIndirectID + 1) * Utility.c_MaxCullingSet);
         }
 
         static readonly ProfilerMarker s_populateVisibilityAndIndirectArgMarker = new ProfilerMarker("PopulateVisibilityAndIndirectArg");
-        public void BuildCommandBuffer(CommandBuffer cmd)
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper)
         {
             cmd.BeginSample(s_populateVisibilityAndIndirectArgMarker);
 

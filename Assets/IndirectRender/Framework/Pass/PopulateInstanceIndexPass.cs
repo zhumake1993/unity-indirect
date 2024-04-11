@@ -64,7 +64,7 @@ namespace ZGame.Indirect
         }
 
         static readonly ProfilerMarker s_populateInstanceIndexMarker = new ProfilerMarker("PopulateInstanceIndex");
-        public void BuildCommandBuffer(CommandBuffer cmd)
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper)
         {
             cmd.BeginSample(s_populateInstanceIndexMarker);
 

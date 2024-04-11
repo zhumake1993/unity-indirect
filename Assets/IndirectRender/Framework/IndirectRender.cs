@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -26,12 +27,16 @@ namespace ZGame.Indirect
 
         IndirectDrawer _indirectDrawer = new IndirectDrawer();
 
+        BatchRendererGroup _brg;
+
         CommandBuffer _cmd;
 
         JobHandle _dispatchJobHandle;
 
         bool _draw;
         bool _drawQuadTree;
+
+        bool _initialized = false;
 
         public void Init(IndirectRenderSetting setting, ComputerShaderCollection computerShaderCollection)
         {
@@ -47,10 +52,10 @@ namespace ZGame.Indirect
             _dispatchHelper.Init(computerShaderCollection.AdjustDispatchArgCS);
             _cullingHelper.Init();
 
-            _quadTreeBuildPass.Init(setting, computerShaderCollection.QuadTreeBuildCS, _dispatchHelper, _cullingHelper);
+            _quadTreeBuildPass.Init(setting, computerShaderCollection.QuadTreeBuildCS, _dispatchHelper);
             _populateInstanceIndexPass.Init(setting, computerShaderCollection.PopulateInstanceIndexCS);
             _quadTreeCullingPass.Init(setting, computerShaderCollection.QuadTreeCullingCS, _quadTreeBuildPass);
-            _frustumCullingPass.Init(setting, computerShaderCollection.FrustumCullingCS, _dispatchHelper, _cullingHelper);
+            _frustumCullingPass.Init(setting, computerShaderCollection.FrustumCullingCS, _dispatchHelper);
             _populateVisibilityAndIndirectArgPass.Init(setting, computerShaderCollection.PopulateVisibilityAndIndirectArgCS, _dispatchHelper);
 
             _indirectDrawer.Init(setting, _meshMerger, _assetManager, _unmanaged);
@@ -63,6 +68,8 @@ namespace ZGame.Indirect
                 _indirectDrawer.GetInstanceDescriptorBuffer(), _indirectDrawer.GetBatchDescriptorBuffer(), _indirectDrawer.GetVisibilityBuffer());
             _indirectDrawer.ConnectBuffer(_populateVisibilityAndIndirectArgPass.GetIndirectArgsBuffer());
 
+            _brg = new BatchRendererGroup(OnPerformCulling, IntPtr.Zero);
+
             _cmd = new CommandBuffer();
             _cmd.name = "IndirectRenderCmd";
 
@@ -72,6 +79,8 @@ namespace ZGame.Indirect
             _drawQuadTree = true;
 
             RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
+
+            _initialized = true;
         }
 
         bool CheckSetting(IndirectRenderSetting setting)
@@ -96,6 +105,9 @@ namespace ZGame.Indirect
 
         public void Dispose()
         {
+            if (!_initialized)
+                return;
+
             _meshMerger.Dispose();
             _assetManager.Dispose();
 
@@ -113,6 +125,8 @@ namespace ZGame.Indirect
 
             _indirectDrawer.Dispose();
 
+            _brg.Dispose();
+
             _cmd.Dispose();
 
             RenderPipelineManager.beginContextRendering -= OnBeginContextRendering;
@@ -120,36 +134,57 @@ namespace ZGame.Indirect
 
         void OnBeginContextRendering(ScriptableRenderContext context, List<Camera> cameras)
         {
+            if (!_initialized)
+                return;
+
             Execute();
         }
 
         public int RegisterMesh(MeshKey meshKey)
         {
+            if (!_initialized)
+                return -1;
+
             return _assetManager.RegisterMesh(meshKey);
         }
 
         public int RegisterMaterial(Material material)
         {
+            if (!_initialized)
+                return -1;
+
             return _assetManager.RegisterMaterial(material);
         }
 
         public Material GetMaterial(int id)
         {
+            if (!_initialized)
+                return null;
+
             return _assetManager.GetMaterial(id);
         }
 
         public void SetQuadTreeCullingEnable(bool enable)
         {
+            if (!_initialized)
+                return;
+
             _quadTreeCullingPass.SetEnable(enable);
         }
 
         public void SetFrustumCullingEnable(bool enable)
         {
+            if (!_initialized)
+                return;
+
             _frustumCullingPass.SetEnable(enable);
         }
 
         public int AddBatch(IndirectKey indirectKey, int meshID, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
+            if (!_initialized)
+                return -1;
+
             int result = _unmanaged->AddBatchImpl(indirectKey, meshID, needInverse, matrices, properties,
                 _assetManager, _indirectDrawer.GetInstanceDataBuffer(), _indirectDrawer.GetInstanceDescriptorBuffer(), _quadTreeBuildPass);
 
@@ -163,16 +198,10 @@ namespace ZGame.Indirect
 
         public void RemoveBatch(int id)
         {
-            _unmanaged->RemoveBatch(id);
-        }
+            if (!_initialized)
+                return;
 
-        static readonly ProfilerMarker s_updateCameraFrustumPlanesMarker = new ProfilerMarker("IndirectRender.UpdateCameraFrustumPlanes");
-        public void UpdateCameraFrustumPlanes(Camera camera)
-        {
-            using (s_updateCameraFrustumPlanesMarker.Auto())
-            {
-                _cullingHelper.UpdateCameraFrustumPlanes(camera);
-            }
+            _unmanaged->RemoveBatch(id);
         }
 
         bool ShouldDraw()
@@ -183,6 +212,9 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_dispatchMarker = new ProfilerMarker("IndirectRender.Dispatch");
         public void Dispatch()
         {
+            if (!_initialized)
+                return;
+
             if (!ShouldDraw())
                 return;
 
@@ -200,6 +232,9 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_executeMarker = new ProfilerMarker("IndirectRender.Execute");
         void Execute()
         {
+            if (!_initialized)
+                return;
+
             if (!ShouldDraw())
                 return;
 
@@ -209,9 +244,6 @@ namespace ZGame.Indirect
 
                 Prepare();
 
-                BuildCommandBuffer();
-                Graphics.ExecuteCommandBuffer(_cmd);
-
                 DrawIndirect();
             }
         }
@@ -219,6 +251,9 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_prepareMarker = new ProfilerMarker("IndirectRender.Prepare");
         void Prepare()
         {
+            if (!_initialized)
+                return;
+
             using (s_prepareMarker.Auto())
             {
                 _quadTreeBuildPass.Prepare(_unmanaged);
@@ -232,23 +267,68 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_buildCommandBufferMarker = new ProfilerMarker("IndirectRender.BuildCommandBuffer");
         void BuildCommandBuffer()
         {
+            if (!_initialized)
+                return;
+
             using (s_buildCommandBufferMarker.Auto())
             {
+                BatchCullingViewType viewType = _cullingHelper.GetViewType();
+                if(viewType == BatchCullingViewType.Camera)
+                    _cmd.name = "Indirect.Camera";
+                else if(viewType == BatchCullingViewType.Light)
+                    _cmd.name = "Indirect.Shadow";
+                else
+                    Utility.LogError("Unknown BatchCullingViewType");
+
                 _cmd.Clear();
 
-                _quadTreeBuildPass.BuildCommandBuffer(_cmd);
-                _populateInstanceIndexPass.BuildCommandBuffer(_cmd);
-                _quadTreeCullingPass.BuildCommandBuffer(_cmd);
-                _frustumCullingPass.BuildCommandBuffer(_cmd);
-                _populateVisibilityAndIndirectArgPass.BuildCommandBuffer(_cmd);
+                _quadTreeBuildPass.BuildCommandBuffer(_cmd, _cullingHelper);
+                _populateInstanceIndexPass.BuildCommandBuffer(_cmd, _cullingHelper);
+                _quadTreeCullingPass.BuildCommandBuffer(_cmd, _cullingHelper);
+                _frustumCullingPass.BuildCommandBuffer(_cmd, _cullingHelper);
+                _populateVisibilityAndIndirectArgPass.BuildCommandBuffer(_cmd, _cullingHelper);
             }
         }
 
         static readonly ProfilerMarker s_drawIndirectMarker = new ProfilerMarker("IndirectRender.DrawIndirect");
         void DrawIndirect()
         {
+            if (!_initialized)
+                return;
+
             using (s_drawIndirectMarker.Auto())
+            {
                 _indirectDrawer.DrawIndirect();
+            }
+        }
+
+        static readonly ProfilerMarker s_cullingCallbackMarker = new ProfilerMarker("IndirectRender.CullingCallback");
+        void CullingCallback(ref BatchCullingContext cullingContext)
+        {
+            if (!_initialized)
+                return;
+
+            using (s_cullingCallbackMarker.Auto())
+            {
+                _cullingHelper.UpdateCullingParameters(ref cullingContext);
+
+                BuildCommandBuffer();
+                Graphics.ExecuteCommandBuffer(_cmd);
+            }
+        }
+
+        private unsafe JobHandle OnPerformCulling(
+            BatchRendererGroup rendererGroup,
+            BatchCullingContext cullingContext,
+            BatchCullingOutput cullingOutput,
+            IntPtr userContext)
+        {
+            if (!ShouldDraw())
+                return new JobHandle();
+
+            CullingCallback(ref cullingContext);
+
+            return new JobHandle();
         }
     }
 }

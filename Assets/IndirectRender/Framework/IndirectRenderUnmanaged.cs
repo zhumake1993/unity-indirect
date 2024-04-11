@@ -379,8 +379,8 @@ namespace ZGame.Indirect
                     IndirectBatch indirectBatch = pair.Value;
                     int indirectID = indirectBatch.IndirectID;
 
-                    Unmanaged->BatchDescriptorArray[indirectID] = new int4(instanceOffset, 0, 0, 0);
-                    instanceOffset += indirectBatch.ActualInstanceCount;
+                    Unmanaged->BatchDescriptorArray[indirectID] = new int4(instanceOffset, indirectBatch.ActualInstanceCount, 0, 0);
+                    instanceOffset += indirectBatch.ActualInstanceCount * Utility.c_MaxCullingSet;
                 }
             }
         }
@@ -404,7 +404,11 @@ namespace ZGame.Indirect
                         startInstance = 0,
                     };
 
-                    Unmanaged->IndirectArgsArray[indirectID] = indirectDrawArgs;
+                    Unmanaged->IndirectArgsArray[indirectID * Utility.c_MaxCullingSet + 0] = indirectDrawArgs;
+                    Unmanaged->IndirectArgsArray[indirectID * Utility.c_MaxCullingSet + 1] = indirectDrawArgs;
+                    Unmanaged->IndirectArgsArray[indirectID * Utility.c_MaxCullingSet + 2] = indirectDrawArgs;
+                    Unmanaged->IndirectArgsArray[indirectID * Utility.c_MaxCullingSet + 3] = indirectDrawArgs;
+                    Unmanaged->IndirectArgsArray[indirectID * Utility.c_MaxCullingSet + 4] = indirectDrawArgs;
                 }
             }
         }

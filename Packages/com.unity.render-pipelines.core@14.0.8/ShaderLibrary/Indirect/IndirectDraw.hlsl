@@ -6,6 +6,8 @@
 
 #include "InstanceDescriptor.hlsl"
 
+//#define kMaxCullingSet 5
+
 struct IndirectVertexData
 {
     float4 position;
@@ -55,10 +57,17 @@ void ZGmae_Indirect_Setup(uint svVertexID, uint svInstanceID)
     gZGameVertexID = svVertexID;
     gZGameInstanceID = svInstanceID;
 
-    int indirectID = GetCommandID(0);
-    uint instanceID = GetIndirectInstanceID(gZGameInstanceID);
+    int originCommandID = GetCommandID(0);
+    int indirectID = originCommandID >> 4;
+    int splitIndex = originCommandID & 0x0000000F;
+
+    //int indirectArgsIndex = indirectID * kMaxCullingSet + splitIndex;
+
     int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-    int instanceIndex = VisibilityBuffer[instanceOffset + instanceID].x;
+    int batchInstanceCount = BatchDescriptorBuffer[indirectID].y;
+    instanceOffset += batchInstanceCount * splitIndex;
+
+    int instanceIndex = VisibilityBuffer[instanceOffset + gZGameInstanceID].x;
     gZGameInstanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
 
     gZGameWorldMatrix = ZGame_Indirect_Load_Matrix();

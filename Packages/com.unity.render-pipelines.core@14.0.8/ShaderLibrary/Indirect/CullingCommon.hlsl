@@ -1,7 +1,7 @@
 #ifndef ZGAME_FRUSTUM_CULLING
 #define ZGAME_FRUSTUM_CULLING
 
-#define kMaxPackedCullingPlaneCount 16
+#define kMaxPackedPlaneCount 16
 
 #define kCullingResultIn 0x00000000
 #define kCullingResultOut 0xFFFFFFFF

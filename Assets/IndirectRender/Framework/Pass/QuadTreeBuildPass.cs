@@ -15,7 +15,6 @@ namespace ZGame.Indirect
         int _quadTreeBuildSubNodeKernel;
 
         DispatchHelper _dispatchHelper;
-        CullingHelper _cullingHelper;
 
         GraphicsBuffer _quadTreeNodeIndexPingBuffer;
         GraphicsBuffer _quadTreeNodeIndexPongBuffer;
@@ -32,7 +31,7 @@ namespace ZGame.Indirect
         static readonly int s_quadTreeNodeIndexOutputBufferID = Shader.PropertyToID("QuadTreeNodeIndexOutputBuffer");
         static readonly int s_quadTreeNodeVisibilityBufferID = Shader.PropertyToID("QuadTreeNodeVisibilityBuffer");
 
-        public void Init(IndirectRenderSetting setting, ComputeShader quadTreeBuildCS, DispatchHelper dispatchHelper, CullingHelper cullingHelper)
+        public void Init(IndirectRenderSetting setting, ComputeShader quadTreeBuildCS, DispatchHelper dispatchHelper)
         {
             _setting = setting.QuadTreeSetting;
 
@@ -41,7 +40,6 @@ namespace ZGame.Indirect
             _quadTreeBuildSubNodeKernel = _quadTreeBuildCS.FindKernel("QuadTreeBuildSubNode");
 
             _dispatchHelper = dispatchHelper;
-            _cullingHelper = cullingHelper;
 
             float[] quadTreeWorldOrigin = new float[4];
             quadTreeWorldOrigin[0] = _setting.WorldOrigin.x;
@@ -188,11 +186,11 @@ namespace ZGame.Indirect
         }
 
         static readonly ProfilerMarker s_quadTreeBuildMarker = new ProfilerMarker("QuadTreeBuild");
-        public void BuildCommandBuffer(CommandBuffer cmd)
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper)
         {
             cmd.BeginSample(s_quadTreeBuildMarker);
 
-            _cullingHelper.SetShaderParams(cmd, _quadTreeBuildCS);
+            cullingHelper.SetShaderParams(cmd, _quadTreeBuildCS);
 
             GraphicsBuffer pingBuffer = _quadTreeNodeIndexPingBuffer;
             GraphicsBuffer pongBuffer = _quadTreeNodeIndexPongBuffer;

@@ -50,7 +50,7 @@ void QuadTreeBuildNode (uint3 id : SV_DispatchThreadID)
     aabb.center.z = nodeCoord.z * lodNodeSize + 0.5 * lodNodeSize + _QuadTreeWorldOrigin.z;
     aabb.extent = float3(lodNodeSize, kQuadTreeNodeHeight, lodNodeSize) * 0.5;
     
-    uint cullingResult = FrustumCull(aabb);
+    uint cullingResult = FrustumCull(aabb, 0); // todo
 
     int nodeIndex = nodeCoord.y * lodNodeRange.x * lodNodeRange.z + nodeCoord.z * lodNodeRange.x + nodeCoord.x;
     int lodOffset = _QuadTreeLodOffset[currentLod].x;
@@ -93,7 +93,7 @@ void QuadTreeBuildSubNode (uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_
     aabb.center.z = nodeCoord.z * kQuadTreeLod0NodeSize + _QuadTreeWorldOrigin.z + groupThreadID.z * kQuadTreeSubNodeSize + 0.5 * kQuadTreeSubNodeSize;
     aabb.extent = float3(kQuadTreeSubNodeSize, kQuadTreeNodeHeight, kQuadTreeSubNodeSize) * 0.5;
     
-    uint cullingResult = FrustumCull(aabb);
+    uint cullingResult = FrustumCull(aabb, 0); // todo
     
     int maxLod = _QuadTreeLodParam.y;
     int3 lodNodeRange = pow(2, maxLod) * _QuadTreeMaxLodRange.xyz;

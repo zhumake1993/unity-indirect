@@ -12,7 +12,6 @@ namespace ZGame.Indirect
         int _frustumCullingKernel;
 
         DispatchHelper _dispatchHelper;
-        CullingHelper _cullingHelper;
 
         GraphicsBuffer _instanceIndexInputBuffer; // connected
         GraphicsBuffer _instanceIndexOutputBuffer; // connected
@@ -21,7 +20,7 @@ namespace ZGame.Indirect
         static readonly int s_instanceIndexInputBufferID = Shader.PropertyToID("InstanceIndexInputBuffer");
         static readonly int s_instanceIndexOutputBufferID = Shader.PropertyToID("InstanceIndexOutputBuffer");
 
-        public void Init(IndirectRenderSetting setting, ComputeShader frustumCullingCS, DispatchHelper dispatchHelper, CullingHelper cullingHelper)
+        public void Init(IndirectRenderSetting setting, ComputeShader frustumCullingCS, DispatchHelper dispatchHelper)
         {
             _setting = setting;
 
@@ -29,7 +28,6 @@ namespace ZGame.Indirect
             _frustumCullingKernel = _frustumCullingCS.FindKernel("FrustumCulling");
 
             _dispatchHelper = dispatchHelper;
-            _cullingHelper = cullingHelper;
         }
 
         public void Dispose()
@@ -66,11 +64,11 @@ namespace ZGame.Indirect
         }
 
         static readonly ProfilerMarker s_frustumCullingMarker = new ProfilerMarker("FrustumCulling");
-        public void BuildCommandBuffer(CommandBuffer cmd)
+        public void BuildCommandBuffer(CommandBuffer cmd, CullingHelper cullingHelper)
         {
             cmd.BeginSample(s_frustumCullingMarker);
 
-            _cullingHelper.SetShaderParams(cmd, _frustumCullingCS);
+            cullingHelper.SetShaderParams(cmd, _frustumCullingCS);
 
             _dispatchHelper.AdjustThreadGroupX(cmd, _instanceIndexInputBuffer);
             _dispatchHelper.Dispatch(cmd, _frustumCullingCS, _frustumCullingKernel);

@@ -38,9 +38,28 @@ void FrustumCulling (uint3 id : SV_DispatchThreadID)
     aabb.center = instanceDescriptor.center_indirectID.xyz;
     aabb.extent = instanceDescriptor.extents_dataOffset.xyz;
 
-    if (FrustumCullNoPartial(aabb) == kCullingResultOut)
-        return;
-    
-    writeIndex = InstanceIndexOutputBuffer.IncrementCounter();
-    InstanceIndexOutputBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+    if (_CullingParameters.x == 0)
+    {
+        // camera
+
+        if (FrustumCullNoPartial(aabb, 0) != kCullingResultOut)
+        {
+            writeIndex = InstanceIndexOutputBuffer.IncrementCounter();
+            InstanceIndexOutputBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+        }
+    }
+    else
+    {
+        // shadow
+
+        int splitCount = _CullingParameters.y;
+        for (int i = 0; i < splitCount; i++)
+        {
+            if (FrustumCullNoPartial(aabb, i) != kCullingResultOut)
+            {
+                writeIndex = InstanceIndexOutputBuffer.IncrementCounter();
+                InstanceIndexOutputBuffer[writeIndex] = int4(instanceIndex, 1, i + 1, 0);
+            }
+        }
+    }
 }

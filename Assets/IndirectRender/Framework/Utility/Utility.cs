@@ -24,7 +24,8 @@ namespace ZGame.Indirect
         public const int c_UserIDInitialCapacity = 16 * 1024;
         public const int c_CmdIDInitialCapacity = 16 * 1024;
 
-        public const int c_MaxPackedPlaneCount = 16;
+        public const int c_MaxPackedPlaneCount = 16; // must be equal to the counterparts in CullingCommon.hlsl
+        public const int c_MaxCullingSet = 5; // camera + 4 splits
 
         // must be equal to the counterparts in QuadTreeCommon.hlsl
         public const int c_QuadTreeLod0NodeSize = 64;
