@@ -12,6 +12,9 @@ namespace ZGame.Indirect
 {
     public unsafe partial class IndirectRender
     {
+        public static IndirectRender s_Instance => s_instance;
+        public IndirectDrawer IndirectDrawer => _indirectDrawer;
+
         MeshMerger _meshMerger = new MeshMerger();
         AssetManager _assetManager = new AssetManager();
         IndirectRenderUnmanaged* _unmanaged;
@@ -37,6 +40,8 @@ namespace ZGame.Indirect
         bool _drawQuadTree;
 
         bool _initialized = false;
+
+        static IndirectRender s_instance = null;
 
         public void Init(IndirectRenderSetting setting, ComputerShaderCollection computerShaderCollection)
         {
@@ -79,6 +84,8 @@ namespace ZGame.Indirect
             _drawQuadTree = true;
 
             RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
+
+            s_instance = this;
 
             _initialized = true;
         }
@@ -244,7 +251,7 @@ namespace ZGame.Indirect
 
                 Prepare();
 
-                DrawIndirect();
+                //DrawIndirect();
             }
         }
 
@@ -298,7 +305,7 @@ namespace ZGame.Indirect
 
             using (s_drawIndirectMarker.Auto())
             {
-                _indirectDrawer.DrawIndirect();
+                //_indirectDrawer.DrawIndirect();
             }
         }
 
@@ -312,7 +319,15 @@ namespace ZGame.Indirect
             {
                 _cullingHelper.UpdateCullingParameters(ref cullingContext);
 
+                // todo
+                if (cullingContext.viewType == BatchCullingViewType.Light)
+                    return;
+
                 BuildCommandBuffer();
+
+                // todo
+                //_indirectDrawer.DrawIndirect(_cmd);
+
                 Graphics.ExecuteCommandBuffer(_cmd);
             }
         }

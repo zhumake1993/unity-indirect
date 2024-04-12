@@ -96,77 +96,77 @@ Shader"GPU Driven/IndirectShader1"
             ENDHLSL
         }
         
-        Pass
-		{
-			Name "ShadowCaster"
-			Tags { "LightMode" = "ShadowCaster" }
-
-			ZWrite On
-			ZTest LEqual
-			ColorMask 0
-			Cull Back
-
-			HLSLPROGRAM
-			
-            #pragma target 4.5
-            
-            #pragma vertex vert
-            #pragma fragment frag
-
-            #pragma editor_sync_compilation
-		    #pragma enable_d3d11_debug_symbols
-
-            #pragma multi_compile _ ZGAME_INDIRECT
-
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-
-            struct Attributes
-            {
-                float4 positionOS : POSITION;
-                
-                UNITY_VERTEX_INPUT_INSTANCE_ID
-            };
-
-            struct Varyings
-            {
-                float4 positionCS : SV_POSITION;
-
-                UNITY_VERTEX_INPUT_INSTANCE_ID
-            };
-
-            #if ZGAME_INDIRECT
-            Varyings vert(uint svVertexID : SV_VertexID, uint svInstanceID : SV_InstanceID)
-            #else
-            Varyings vert(Attributes input)
-            #endif
-            {
-                Varyings output;
-
-                #if ZGAME_INDIRECT
-                
-                ZGmae_Indirect_Setup(svVertexID, svInstanceID);
-
-                IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
-
-                Attributes input = (Attributes)0;
-                input.positionOS = indirectVertexData.position;
-
-                #endif
-
-                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                output.positionCS = TransformWorldToHClip(positionWS);
-
-                return output;
-            }
-
-            half4 frag(Varyings input) : SV_Target
-            {
-                UNITY_SETUP_INSTANCE_ID(input);
-                
-                return half4(1.0f, 1.0f, 1.0f, 1.0f);
-            }
-
-			ENDHLSL
-		}
+//        Pass
+//		{
+//			Name "ShadowCaster"
+//			Tags { "LightMode" = "ShadowCaster" }
+//
+//			ZWrite On
+//			ZTest LEqual
+//			ColorMask 0
+//			Cull Back
+//
+//			HLSLPROGRAM
+//			
+//            #pragma target 4.5
+//            
+//            #pragma vertex vert
+//            #pragma fragment frag
+//
+//            #pragma editor_sync_compilation
+//		    #pragma enable_d3d11_debug_symbols
+//
+//            #pragma multi_compile _ ZGAME_INDIRECT
+//
+//            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+//
+//            struct Attributes
+//            {
+//                float4 positionOS : POSITION;
+//                
+//                UNITY_VERTEX_INPUT_INSTANCE_ID
+//            };
+//
+//            struct Varyings
+//            {
+//                float4 positionCS : SV_POSITION;
+//
+//                UNITY_VERTEX_INPUT_INSTANCE_ID
+//            };
+//
+//            #if ZGAME_INDIRECT
+//            Varyings vert(uint svVertexID : SV_VertexID, uint svInstanceID : SV_InstanceID)
+//            #else
+//            Varyings vert(Attributes input)
+//            #endif
+//            {
+//                Varyings output;
+//
+//                #if ZGAME_INDIRECT
+//                
+//                ZGmae_Indirect_Setup(svVertexID, svInstanceID);
+//
+//                IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
+//
+//                Attributes input = (Attributes)0;
+//                input.positionOS = indirectVertexData.position;
+//
+//                #endif
+//
+//                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
+//                output.positionCS = TransformWorldToHClip(positionWS);
+//
+//                return output;
+//            }
+//
+//            half4 frag(Varyings input) : SV_Target
+//            {
+//                UNITY_SETUP_INSTANCE_ID(input);
+//                
+//                return half4(1.0f, 1.0f, 1.0f, 1.0f);
+//            }
+//
+//			ENDHLSL
+//		}
     }
 }

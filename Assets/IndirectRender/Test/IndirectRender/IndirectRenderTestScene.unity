@@ -681,8 +681,8 @@ MonoBehaviour:
   Materials:
   - {fileID: 2100000, guid: 3ff1c6b2576b971458fc44e5ca79e4cb, type: 2}
   - {fileID: 2100000, guid: c81763479ba8d3f499495319047a0e00, type: 2}
-  MaxInstanceCount: 10000
-  MaxHeight: 30
+  MaxInstanceCount: 1000
+  MaxHeight: 20
   AdjustDispatchArgCS: {fileID: 7200000, guid: dead25538bc8ba04c9ee263e737f6774, type: 3}
   QuadTreeBuildCS: {fileID: 7200000, guid: d72eebdf4d067f0409539331f3fe1ac0, type: 3}
   PopulateInstanceIndexCS: {fileID: 7200000, guid: 37c765120b5018f49a00957f7fc195de,

@@ -203,11 +203,10 @@ public class IndirectRenderTest : MonoBehaviour
         return PickHeight(index);
     }
 
-    void Add(int meshIndex, int materialIndex, int instanceCount, int heightIndex)
+    void Add(int meshIndex, int materialIndex, int instanceCount, int height)
     {
         int meshID = _meshIDs[meshIndex];
         int materialID = _materialIDs[materialIndex];
-        int height = PickHeight(heightIndex);
 
         if (height == -1)
             return;
@@ -263,7 +262,7 @@ public class IndirectRenderTest : MonoBehaviour
         Add(_random.NextInt(0, Meshes.Length),
             _random.NextInt(0, Materials.Length), 
             _random.NextInt(1, MaxInstanceCount + 1),
-            _random.NextInt(0, _heights.Count));
+            PickHeight());
     }
 
     void DeleteRandom()
@@ -286,8 +285,8 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            //Add(0, 0, 1000, 0);
-            Add(1, 0, 1, 1);
+            for (int i = 0; i < MaxHeight; ++i)
+                Add(0, 0, MaxInstanceCount, i);
         }
 
         if (GUILayout.Button("AddRandom", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))

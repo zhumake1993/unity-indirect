@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace ZGame.Indirect
 {
@@ -84,7 +85,7 @@ namespace ZGame.Indirect
             _indirectArgsBuffer = indirectArgsBuffer;
         }
 
-        public void DrawIndirect()
+        public void DrawIndirect(CommandBuffer cmd)
         {
             foreach (var pair in _unmanaged->IndirectMap)
             {
@@ -99,7 +100,11 @@ namespace ZGame.Indirect
                 renderParams.matProps = _mpb;
                 renderParams.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
 
-                Graphics.RenderPrimitivesIndirect(renderParams, MeshTopology.Triangles, _indirectArgsBuffer, 1, indirectID);
+                //Graphics.RenderPrimitivesIndirect(renderParams, MeshTopology.Triangles, _indirectArgsBuffer, 1, indirectID);
+
+                _mpb.SetInt("unity_BaseCommandID", indirectID);
+
+                cmd.DrawProceduralIndirect(Matrix4x4.identity, material, 0, MeshTopology.Triangles, _indirectArgsBuffer, indirectID, _mpb);
             }
         }
     }
