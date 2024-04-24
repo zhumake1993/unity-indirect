@@ -1,0 +1,84 @@
+#pragma enable_d3d11_debug_symbols
+
+#pragma kernel IndirectPipelineNoCull
+#pragma kernel IndirectPipelineCull
+
+#pragma multi_compile_local _ _DISABLE_FRUSTUM_CULL
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/FrustumCulling.hlsl"
+
+struct IndirectArgs
+{
+    uint vertexCountPerInstance;
+    uint instanceCount;
+    uint startVertex;
+    uint startInstance;
+};
+
+uint4 _IndexCount;
+
+StructuredBuffer<int4> IndexBuffer;
+
+StructuredBuffer<int4> BatchDescriptorBuffer;
+
+RWStructuredBuffer<int4> VisibilityBuffer;
+
+RWStructuredBuffer<IndirectArgs> IndirectArgsBuffer;
+
+[numthreads(64,1,1)]
+void IndirectPipelineNoCull (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _IndexCount.x)
+        return;
+
+    int index = IndexBuffer[id.x].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[index];
+    
+    int indirectID = instanceDescriptor.center_indirectID.w;
+ 
+    int visibleCount = 0;
+    InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+
+    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
+    VisibilityBuffer[instanceOffset + visibleCount].x = index;
+}
+
+[numthreads(64,1,1)]
+void IndirectPipelineCull (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _IndexCount.y)
+        return;
+
+    int index = IndexBuffer[_IndexCount.x + id.x].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[index];
+
+    #if _DISABLE_FRUSTUM_CULL
+
+        int indirectID = instanceDescriptor.center_indirectID.w;
+     
+        int visibleCount = 0;
+        InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+
+        int instanceOffset = BatchDescriptorBuffer[indirectID].x;
+        VisibilityBuffer[instanceOffset + visibleCount].x = index;
+
+        return;
+    
+    #endif
+
+    AABB aabb;
+    aabb.center = instanceDescriptor.center_indirectID.xyz;
+    aabb.extent = instanceDescriptor.extents_dataOffset.xyz;
+
+    if (FrustumCullNoPartial(aabb) != kCullingResultOut)
+    {
+        int indirectID = instanceDescriptor.center_indirectID.w;
+ 
+        int visibleCount = 0;
+        InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+
+        int instanceOffset = BatchDescriptorBuffer[indirectID].x;
+        VisibilityBuffer[instanceOffset + visibleCount].x = index;
+    }
+}

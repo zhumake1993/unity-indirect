@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace ZGame.Indirect
 {
@@ -17,10 +18,14 @@ namespace ZGame.Indirect
         Dictionary<Material, int> _materialToID = new Dictionary<Material, int>();
         Dictionary<int, Material> _idToMaterial = new Dictionary<int, Material>();
         Dictionary<int, ShaderLayout> _idToShaderLayout = new Dictionary<int, ShaderLayout>();
+        Dictionary<int, BatchMaterialID> _idToBatchMaterialID = new Dictionary<int, BatchMaterialID>();
 
-        public void Init(MeshMerger meshMerger)
+        BatchRendererGroup _brg;
+
+        public void Init(MeshMerger meshMerger, BatchRendererGroup brg)
         {
             _meshMerger = meshMerger;
+            _brg = brg;
 
             _meshIDGenerator = new IDGenerator();
             _meshIDGenerator.Init(Utility.c_MeshIDInitialCapacity);
@@ -77,6 +82,7 @@ namespace ZGame.Indirect
                 int newID = _materialIDGenerator.GetID();
                 _materialToID[material] = newID;
                 _idToMaterial[newID] = material;
+                _idToBatchMaterialID[newID] = _brg.RegisterMaterial(material);
 
                 return newID;
             }
@@ -105,6 +111,19 @@ namespace ZGame.Indirect
             {
                 Utility.LogError($"Material not found, id={materialID}");
                 return null;
+            }
+        }
+
+        public BatchMaterialID GetBatchMaterialID(int materialID)
+        {
+            if (_idToBatchMaterialID.TryGetValue(materialID, out BatchMaterialID batchMaterialID))
+            {
+                return batchMaterialID;
+            }
+            else
+            {
+                Utility.LogError($"BatchMaterialID not found, id={materialID}");
+                return BatchMaterialID.Null;
             }
         }
 

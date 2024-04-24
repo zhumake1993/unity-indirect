@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using ZGame.Indirect;
 
@@ -24,7 +25,7 @@ public class MeshMergerTest : MonoBehaviour
     public bool DrawAABB = false;
 
     MeshMerger _meshMerger;
-    List<MeshInfo> _meshInfos = new List<MeshInfo>();
+    Dictionary<MeshKey, MeshInfo> _meshInfos = new Dictionary<MeshKey, MeshInfo>();
 
     int _buttonSize = 100;
     GUIStyle _style;
@@ -46,7 +47,7 @@ public class MeshMergerTest : MonoBehaviour
                 };
 
                 MeshInfo meshInfo = _meshMerger.Merge(meshKey);
-                _meshInfos.Add(meshInfo);
+                _meshInfos.Add(meshKey, meshInfo);
             }
         }
 
@@ -70,9 +71,12 @@ public class MeshMergerTest : MonoBehaviour
         if (GUILayout.Button("Create", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
             int index = 0;
-            foreach (var meshInfo in _meshInfos)
+            foreach (var pair in _meshInfos)
             {
-                _meshMerger.CreateDebugGameObject(meshInfo, new Vector3(index * 1.5f, 0, 0));
+                MeshKey meshKey = pair.Key;
+                MeshInfo meshInfo = pair.Value;
+
+                _meshMerger.CreateDebugGameObject(meshKey, meshInfo, new Vector3(index * 1.5f, 0, 0));
                 index++;
             }
         }
@@ -81,17 +85,22 @@ public class MeshMergerTest : MonoBehaviour
 
         if (ShowInfo && InfoIndex < _meshInfos.Count)
         {
-            var _meshInfo = _meshInfos[InfoIndex];
-            var meshKey = _meshInfo.MeshKey;
+            var itr = _meshInfos.GetEnumerator();
+            for (int i = 0; i < InfoIndex; ++i)
+            {
+                itr.MoveNext();
+            }
+            MeshKey meshKey = itr.Current.Key;
+            MeshInfo meshInfo = itr.Current.Value;
 
-            log += $"mesh={meshKey.Mesh.name},SubmeshIndex={meshKey.SubmeshIndex},FlipZ={meshKey.FlipZ},UnitMeshCount={_meshInfo.UnitMeshInfos.Count}\n";
+            log += $"mesh={meshKey.Mesh.name},SubmeshIndex={meshKey.SubmeshIndex},FlipZ={meshKey.FlipZ},UnitMeshCount={meshInfo.UnitMeshInfos.Length}\n";
 
             UnityEngine.Rendering.SubMeshDescriptor subMeshDescriptor = meshKey.Mesh.GetSubMesh(meshKey.SubmeshIndex);
             log += $"subMeshDescriptor.indexStart={subMeshDescriptor.indexStart},indexCount={subMeshDescriptor.indexCount}," +
                 $"baseVertex={subMeshDescriptor.baseVertex},firstVertex={subMeshDescriptor.firstVertex}," +
                 $"vertexCount={subMeshDescriptor.vertexCount}\n";
 
-            List<UnitMeshInfo> unitMeshInfos = _meshInfo.UnitMeshInfos;
+            UnsafeList<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
             foreach (UnitMeshInfo unitMeshInfo in unitMeshInfos)
             {
                 log += $"\tIndexOffset={unitMeshInfo.IndexOffset},VertexOffset={unitMeshInfo.VertexOffset},VertexCount={unitMeshInfo.VertexCount}" +
@@ -108,9 +117,11 @@ public class MeshMergerTest : MonoBehaviour
             Gizmos.color = Color.green;
 
             int index = 0;
-            foreach (var meshInfo in _meshInfos)
+            foreach (var pair in _meshInfos)
             {
-                List<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
+                MeshInfo meshInfo = pair.Value;
+
+                UnsafeList<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
                 foreach (UnitMeshInfo unitMeshInfo in unitMeshInfos)
                 {
                     Gizmos.DrawWireCube(unitMeshInfo.AABB.Center + new Unity.Mathematics.float3(index * 1.5f, 0, 0), unitMeshInfo.AABB.Extents * 2);

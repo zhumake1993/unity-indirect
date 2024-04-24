@@ -29,21 +29,14 @@ public class IndirectRenderTest : MonoBehaviour
     public Material[] Materials;
     public int MaxInstanceCount = 100;
     public int MaxHeight = 10;
-
-    public ComputeShader AdjustDispatchArgCS;
-    public ComputeShader QuadTreeBuildCS;
-    public ComputeShader PopulateInstanceIndexCS;
-    public ComputeShader QuadTreeCullingCS;
-    public ComputeShader FrustumCullingCS;
-    public ComputeShader PopulateVisibilityAndIndirectArgCS;
-
+    public ComputeShader IndirectPipelineCS;
 
     [Header("Other")]
     public uint Seed = 1234;
     public bool Draw = true;
-    public bool EnableQuadTreeCulling = true;
-    public bool EnableFrustumCulling = true;
-    public bool Gizmo = false;
+    public bool QuadTreeCull = true;
+    public bool FrustumCull = true;
+    public bool DrawQuadTree = false;
 
     IndirectRender _indirectRender;
     Unity.Mathematics.Random _random;
@@ -78,13 +71,14 @@ public class IndirectRenderTest : MonoBehaviour
 
             InstanceCapacity = 16 * 1024 * 1024,
             BatchCapacity = 1024,
-            IndexSegmentCapacity = 256 * 1024,
 
             QuadTreeSetting = new QuadTreeSetting
             {
-                WorldOrigin = new int3(-1000, 0, -1000),
-                MaxLodRange = new int3(4, 3, 4),
                 MaxLod = 6,
+                Lod0NodeSize = 64,
+                NodeHeight = 64,
+                WorldOrigin = new int3(-1000, 0, -1000),
+                MaxLodRange = new int3(4, 1, 4),
             },
 
             MinInstanceCountPerCmd = 16,
@@ -96,17 +90,7 @@ public class IndirectRenderTest : MonoBehaviour
             InstanceDataNumMaxSizeBlocks = 256,
         };
 
-        ComputerShaderCollection computerShaderCollection = new ComputerShaderCollection()
-        {
-            AdjustDispatchArgCS = AdjustDispatchArgCS,
-            QuadTreeBuildCS = QuadTreeBuildCS,
-            PopulateInstanceIndexCS = PopulateInstanceIndexCS,
-            QuadTreeCullingCS = QuadTreeCullingCS,
-            FrustumCullingCS = FrustumCullingCS,
-            PopulateVisibilityAndIndirectArgCS = PopulateVisibilityAndIndirectArgCS,
-        };
-
-        _indirectRender.Init(indirectRenderSetting, computerShaderCollection);
+        _indirectRender.Init(indirectRenderSetting, IndirectPipelineCS);
 
         PrepareAssets();
 
@@ -175,8 +159,8 @@ public class IndirectRenderTest : MonoBehaviour
             //RandomUpdateProperty();
         }
 
-        _indirectRender.SetQuadTreeCullingEnable(EnableQuadTreeCulling);
-        _indirectRender.SetFrustumCullingEnable(EnableFrustumCulling);
+        _indirectRender.SetQuadTreeCull(QuadTreeCull);
+        _indirectRender.SetFrustumCull(FrustumCull);
 
         if (Draw)
         {
@@ -217,8 +201,8 @@ public class IndirectRenderTest : MonoBehaviour
         {
             MaterialID = materialID,
             Layer = (byte)indirectLayer,
-            ReceiveShadows = false,
-            ShadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off,
+            ReceiveShadows = true,
+            ShadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On,
         };
 
         UnsafeList<float4x4> matrices = new UnsafeList<float4x4>(instanceCount, Allocator.TempJob);
@@ -285,8 +269,8 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            for (int i = 0; i < MaxHeight; ++i)
-                Add(0, 0, MaxInstanceCount, i);
+            Add(0, 0, 1000, 1);
+            //for (int i = 0; i < MaxHeight; ++i) Add(0, 0, MaxInstanceCount, i);
         }
 
         if (GUILayout.Button("AddRandom", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
@@ -334,14 +318,16 @@ public class IndirectRenderTest : MonoBehaviour
         GUILayout.Label(GetStats(), _style);
     }
 
+#if UNITY_EDITOR
     void OnDrawGizmos()
     {
-        if (Gizmo)
+        if (DrawQuadTree)
         {
             if (_indirectRender != null)
-                _indirectRender.DrawGizmo();
+                _indirectRender.DrawQuadTree();
         }
     }
+#endif
 
     string GetStats()
     {
@@ -370,8 +356,6 @@ public class IndirectRenderTest : MonoBehaviour
             $"({100.0f * indirectRenderStats.TotalActualInstanceCount / indirectRenderSetting.InstanceCapacity}%)\n";
         log += $"BatchCapacity: {indirectRenderStats.MaxIndirectID}/{indirectRenderSetting.BatchCapacity}" +
             $"({100.0f * indirectRenderStats.MaxIndirectID / indirectRenderSetting.BatchCapacity}%)\n";
-        log += $"IndexSegmentCapacity: {indirectRenderStats.IndexSegmentCount}/{indirectRenderSetting.IndexSegmentCapacity}" +
-            $"({100.0f * indirectRenderStats.IndexSegmentCount / indirectRenderSetting.IndexSegmentCapacity}%)\n";
 
         log += $"IndicesCapacity: {instanceIndicesBuddyAllocatorStats.AllocatedBytes}/{instanceIndicesBuddyAllocatorStats.TotalBytes}" +
             $"({100.0f * instanceIndicesBuddyAllocatorStats.AllocatedBytes / instanceIndicesBuddyAllocatorStats.TotalBytes}%)\n";

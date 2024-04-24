@@ -1,8 +1,7 @@
-using System.Collections;
-using System.Collections.Generic;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Profiling;
+using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -10,105 +9,74 @@ namespace ZGame.Indirect
 {
     public class CullingHelper
     {
-        BatchCullingViewType _viewType;
-
         int[] _cullingParameters = new int[4] { 0, 0, 0, 0 };
-        int[] _packedPlaneOffset = new int[4] { 0, 0, 0, 0 };
-        int[] _packedPlaneCount = new int[4] { 0, 0, 0, 0 };
-        Vector4[] _cameraPackedPlanes = new Vector4[Utility.c_MaxPackedPlaneCount * 4];
-        Vector4[] _shadowPackedPlanes = new Vector4[Utility.c_MaxPackedPlaneCount * 4];
+        UnsafeList<UnsafeList<PlanePacket4>> _packedPlanesArray;
+        Vector4[] _managedPackedPlanes = new Vector4[Utility.c_MaxPackedPlaneCount * 4];
 
         public static readonly int s_CullingParametersID = Shader.PropertyToID("_CullingParameters");
-        public static readonly int s_PackedPlaneOffsetID = Shader.PropertyToID("_PackedPlaneOffset");
-        public static readonly int s_PackedPlaneCountID = Shader.PropertyToID("_PackedPlaneCount");
         public static readonly int s_PackedPlanesID = Shader.PropertyToID("_PackedPlanes");
 
         public void Init()
-        {
-            //
+        { 
         }
 
         public void Dispose()
         {
-            //
+            foreach (var packedPlanes in _packedPlanesArray)
+                packedPlanes.Dispose();
+            _packedPlanesArray.Dispose();
         }
 
-        public void UpdateCullingParameters(ref BatchCullingContext cullingContext)
+        public JobHandle Dispose(JobHandle dependency)
         {
-            _viewType = cullingContext.viewType;
+            JobHandle jobHandle = new DisposeJob
+            {
+                PackedPlanesArray = _packedPlanesArray
+            }.Schedule(dependency);
 
+            return jobHandle;
+        }
+
+        [BurstCompile]
+        struct DisposeJob : IJob
+        {
+            public UnsafeList<UnsafeList<PlanePacket4>> PackedPlanesArray;
+
+            public void Execute()
+            {
+                foreach (var packedPlanes in PackedPlanesArray)
+                    packedPlanes.Dispose();
+                PackedPlanesArray.Dispose();
+            }
+        }
+
+        public void UpdateCullinglanes(ref BatchCullingContext cullingContext)
+        {
             CullingPlanes cullingPlanes = CullingUtility.CalculateCullingParameters(ref cullingContext, Allocator.Temp);
-            UnsafeList<UnsafeList<PlanePacket4>> packedPlanes = CullingUtility.BuildPlanePackets(ref cullingPlanes, Allocator.Temp);
-
-            if (_viewType == BatchCullingViewType.Camera)
-            {
-                Utility.Assert(packedPlanes.Length == 1);
-
-                PopulateManagedPlanes(packedPlanes, _cameraPackedPlanes);
-
-                _cullingParameters[0] = 0;
-                _cullingParameters[1] = 1;
-
-                _packedPlaneOffset[0] = 0;
-                _packedPlaneCount[0] = packedPlanes[0].Length;
-
-            }
-            else if (_viewType == BatchCullingViewType.Light)
-            {
-                Utility.Assert(packedPlanes.Length <= 4);
-
-                PopulateManagedPlanes(packedPlanes, _shadowPackedPlanes);
-
-                _cullingParameters[0] = 1;
-                _cullingParameters[1] = packedPlanes.Length;
-
-                int offset = 0;
-                for (int i = 0; i < packedPlanes.Length; ++i)
-                {
-                    _packedPlaneOffset[i] = offset;
-                    _packedPlaneCount[i] = packedPlanes[i].Length;
-
-                    offset += packedPlanes[i].Length;
-                }
-            }
+            _packedPlanesArray = CullingUtility.BuildPlanePackets(ref cullingPlanes, Allocator.TempJob);
         }
 
-        public BatchCullingViewType GetViewType()
+        public UnsafeList<PlanePacket4> GetCullinglanes(int splitIndex)
         {
-            return _viewType;
+            return _packedPlanesArray[splitIndex];
         }
 
-        void PopulateManagedPlanes(UnsafeList<UnsafeList<PlanePacket4>> packedPlanes, Vector4[] managedPlanes)
+        public void BuildCommandBuffer(CommandBuffer cmd, ComputeShader computeShader, int splitIndex)
         {
-            int packedPlaneCount = 0;
+            UnsafeList<PlanePacket4> packedPlanes = _packedPlanesArray[splitIndex];
+
+            _cullingParameters[0] = packedPlanes.Length;
+            cmd.SetComputeIntParams(computeShader, s_CullingParametersID, _cullingParameters);
+
             for (int i = 0; i < packedPlanes.Length; ++i)
             {
-                for (int j = 0; j < packedPlanes[i].Length; ++j)
-                {
-                    managedPlanes[packedPlaneCount * 4 + 0] = packedPlanes[i][j].Xs;
-                    managedPlanes[packedPlaneCount * 4 + 1] = packedPlanes[i][j].Ys;
-                    managedPlanes[packedPlaneCount * 4 + 2] = packedPlanes[i][j].Zs;
-                    managedPlanes[packedPlaneCount * 4 + 3] = packedPlanes[i][j].Distances;
-
-                    packedPlaneCount++;
-                }
+                _managedPackedPlanes[i * 4 + 0] = packedPlanes[i].Xs;
+                _managedPackedPlanes[i * 4 + 1] = packedPlanes[i].Ys;
+                _managedPackedPlanes[i * 4 + 2] = packedPlanes[i].Zs;
+                _managedPackedPlanes[i * 4 + 3] = packedPlanes[i].Distances;
             }
-        }
 
-        public void SetShaderParams(CommandBuffer cmd, ComputeShader computeShader)
-        {
-            cmd.SetComputeIntParams(computeShader, s_CullingParametersID, _cullingParameters);
-            cmd.SetComputeIntParams(computeShader, s_PackedPlaneOffsetID, _packedPlaneOffset);
-            cmd.SetComputeIntParams(computeShader, s_PackedPlaneCountID, _packedPlaneCount);
-
-            if (_viewType == BatchCullingViewType.Camera)
-            {
-                cmd.SetComputeVectorArrayParam(computeShader, s_PackedPlanesID, _cameraPackedPlanes);
-            }
-            else if (_viewType == BatchCullingViewType.Light)
-            {
-                cmd.SetComputeVectorArrayParam(computeShader, s_PackedPlanesID, _shadowPackedPlanes);
-            }
+            cmd.SetComputeVectorArrayParam(computeShader, s_PackedPlanesID, _managedPackedPlanes);
         }
     }
 }

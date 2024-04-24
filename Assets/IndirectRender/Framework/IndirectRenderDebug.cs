@@ -15,7 +15,6 @@ namespace ZGame.Indirect
         public BuddyAllocatorStats InstanceDataBuddyAllocatorStats;
         public int TotalActualInstanceCount;
         public int MaxIndirectID;
-        public int IndexSegmentCount;
     }
 
     public unsafe partial class IndirectRender
@@ -33,20 +32,9 @@ namespace ZGame.Indirect
                 InstanceDataBuddyAllocatorStats = _unmanaged->InstanceDataAllocator.GetStats(),
                 TotalActualInstanceCount = _unmanaged->TotalActualInstanceCount,
                 MaxIndirectID = _unmanaged->MaxIndirectID,
-                IndexSegmentCount = _unmanaged->IndexSegmentCount,
             };
 
             return stats;
-        }
-
-        public void SetDrawQuadTreeStatus(bool draw)
-        {
-            _drawQuadTree = draw;
-        }
-
-        public bool GetDrawQuadTreeStatus()
-        {
-            return _drawQuadTree;
         }
 
         public void SetDrawStatus(bool draw)
@@ -59,116 +47,133 @@ namespace ZGame.Indirect
             return _draw;
         }
 
-        public void DrawGizmo()
+        public void SetFrustumCull(bool enable)
         {
             if (!_initialized)
                 return;
 
-            if (_drawQuadTree)
-                _quadTreeBuildPass.DrawGizmo();
+            _indirectPipeline.SetFrustumCull(enable);
         }
+
+        public void SetQuadTreeCull(bool enable)
+        {
+            if (!_initialized)
+                return;
+
+            _quadTree.SetQuadTreeCull(enable);
+        }
+
+#if UNITY_EDITOR
+        public void DrawQuadTree()
+        {
+            if (!_initialized)
+                return;
+
+            _quadTree.DrawGizmo();
+        }
+#endif
 
         public void CreateGameobject()
         {
             if (!_initialized)
                 return;
 
-            GameObject debugRoot = CreateGameObject("Indirect", null);
+            //GameObject debugRoot = CreateGameObject("Indirect", null);
 
-            Dictionary<Material, Material> materialMap = new Dictionary<Material, Material>();
+            //Dictionary<Material, Material> materialMap = new Dictionary<Material, Material>();
 
-            MaterialPropertyBlock mpb = new MaterialPropertyBlock();
+            //MaterialPropertyBlock mpb = new MaterialPropertyBlock();
 
-            float4[] shadowBuffer = new float4[(_unmanaged->Setting.InstanceDataMaxSizeBytes * _unmanaged->Setting.InstanceDataNumMaxSizeBlocks) / Utility.c_SizeOfFloat4];
-            _indirectDrawer.GetInstanceDataBuffer().GetData(shadowBuffer);
+            //float4[] shadowBuffer = new float4[(_unmanaged->Setting.InstanceDataMaxSizeBytes * _unmanaged->Setting.InstanceDataNumMaxSizeBlocks) / Utility.c_SizeOfFloat4];
+            //_indirectDrawer.GetInstanceDataBuffer().GetData(shadowBuffer);
 
-            foreach (var userIDPair in _unmanaged->UserIdToCmdIDs)
-            {
-                int userID = userIDPair.Key;
-                UnsafeList<int> cmdIDs = userIDPair.Value;
+            //foreach (var userIDPair in _unmanaged->UserIdToCmdIDs)
+            //{
+            //    int userID = userIDPair.Key;
+            //    UnsafeList<int> cmdIDs = userIDPair.Value;
 
-                GameObject userGO = CreateGameObject($"userID={userID},cmdNum={cmdIDs.Length}", debugRoot);
+            //    GameObject userGO = CreateGameObject($"userID={userID},cmdNum={cmdIDs.Length}", debugRoot);
 
-                foreach (var cmdID in cmdIDs)
-                {
-                    IndirectCmdInfo indirectCmdInfo = _unmanaged->CmdMap[cmdID];
+            //    foreach (var cmdID in cmdIDs)
+            //    {
+            //        IndirectCmdInfo indirectCmdInfo = _unmanaged->CmdMap[cmdID];
 
-                    GameObject cmdGO = CreateGameObject($"cmdID={cmdID},mesh={indirectCmdInfo.MeshID},material={indirectCmdInfo.IndirectKey.MaterialID},count={indirectCmdInfo.InstanceCount}", userGO);
+            //        GameObject cmdGO = CreateGameObject($"cmdID={cmdID},mesh={indirectCmdInfo.MeshID},material={indirectCmdInfo.IndirectKey.MaterialID},count={indirectCmdInfo.InstanceCount}", userGO);
 
-                    MeshInfo meshInfo = _assetManager.GetMeshInfo(indirectCmdInfo.MeshID);
-                    List<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
+            //        MeshInfo meshInfo = _assetManager.GetMeshInfo(indirectCmdInfo.MeshID);
+            //        List<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
 
-                    ShaderLayout shaderLayout = _assetManager.GetShaderLayout(indirectCmdInfo.IndirectKey.MaterialID);
-                    int instanceSizeF4 = shaderLayout.GetInstanceSizeF4();
-                    int propertyCount = shaderLayout.PeopertyCount;
+            //        ShaderLayout shaderLayout = _assetManager.GetShaderLayout(indirectCmdInfo.IndirectKey.MaterialID);
+            //        int instanceSizeF4 = shaderLayout.GetInstanceSizeF4();
+            //        int propertyCount = shaderLayout.PeopertyCount;
 
-                    int instanceCount = indirectCmdInfo.InstanceCount;
+            //        int instanceCount = indirectCmdInfo.InstanceCount;
 
-                    Chunk chunk = indirectCmdInfo.InstanceDataChunk;
-                    int addr = (int)chunk.AddressOf();
-                    int offsetF4 = addr / Utility.c_SizeOfFloat4;
+            //        Chunk chunk = indirectCmdInfo.InstanceDataChunk;
+            //        int addr = (int)chunk.AddressOf();
+            //        int offsetF4 = addr / Utility.c_SizeOfFloat4;
 
-                    NativeArray<float4x4> matrices = new NativeArray<float4x4>(instanceCount, Allocator.Temp);
-                    for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
-                    {
-                        int instanceOffsetF4 = offsetF4 + iInstance * instanceSizeF4;
-                        matrices[iInstance] = ExtractFloat4x4(shadowBuffer, instanceOffsetF4);
-                    }
+            //        NativeArray<float4x4> matrices = new NativeArray<float4x4>(instanceCount, Allocator.Temp);
+            //        for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
+            //        {
+            //            int instanceOffsetF4 = offsetF4 + iInstance * instanceSizeF4;
+            //            matrices[iInstance] = ExtractFloat4x4(shadowBuffer, instanceOffsetF4);
+            //        }
 
-                    UnsafeList<UnsafeList<float4>> properties = new UnsafeList<UnsafeList<float4>>(propertyCount, Allocator.Temp);
-                    properties.Length = propertyCount;
-                    for (int iProperty = 0; iProperty < propertyCount; ++iProperty)
-                    {
-                        UnsafeList<float4> float4s = new UnsafeList<float4>(instanceCount, Allocator.Temp);
-                        float4s.Length = instanceCount;
-                        for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
-                        {
-                            int propertyOffsetF4 = offsetF4 + iInstance * instanceSizeF4 + 3 + (shaderLayout.NeedInverse ? 3 : 0) + iProperty;
-                            float4s[iInstance] = shadowBuffer[propertyOffsetF4];
-                        }
-                        properties[iProperty] = float4s;
-                    }
+            //        UnsafeList<UnsafeList<float4>> properties = new UnsafeList<UnsafeList<float4>>(propertyCount, Allocator.Temp);
+            //        properties.Length = propertyCount;
+            //        for (int iProperty = 0; iProperty < propertyCount; ++iProperty)
+            //        {
+            //            UnsafeList<float4> float4s = new UnsafeList<float4>(instanceCount, Allocator.Temp);
+            //            float4s.Length = instanceCount;
+            //            for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
+            //            {
+            //                int propertyOffsetF4 = offsetF4 + iInstance * instanceSizeF4 + 3 + (shaderLayout.NeedInverse ? 3 : 0) + iProperty;
+            //                float4s[iInstance] = shadowBuffer[propertyOffsetF4];
+            //            }
+            //            properties[iProperty] = float4s;
+            //        }
 
-                    UnsafeList<IndirectSubCmdInfo> subCmds = indirectCmdInfo.SubCmds;
-                    for (int iSubCmd = 0; iSubCmd < subCmds.Length; ++iSubCmd)
-                    {
-                        IndirectSubCmdInfo indirectSubCmdInfo = subCmds[iSubCmd];
+            //        UnsafeList<IndirectSubCmdInfo> subCmds = indirectCmdInfo.SubCmds;
+            //        for (int iSubCmd = 0; iSubCmd < subCmds.Length; ++iSubCmd)
+            //        {
+            //            IndirectSubCmdInfo indirectSubCmdInfo = subCmds[iSubCmd];
 
-                        GameObject subCmdGO = CreateGameObject($"iSubCmd={iSubCmd},start={indirectSubCmdInfo.StartInstanceIndex}", cmdGO);
+            //            GameObject subCmdGO = CreateGameObject($"iSubCmd={iSubCmd},start={indirectSubCmdInfo.StartInstanceIndex}", cmdGO);
 
-                        UnitMeshInfo unitMeshInfo = unitMeshInfos[iSubCmd];
-                        Mesh debugMesh = _meshMerger.CreateDebugMesh(unitMeshInfo);
+            //            UnitMeshInfo unitMeshInfo = unitMeshInfos[iSubCmd];
+            //            Mesh debugMesh = _meshMerger.CreateDebugMesh(unitMeshInfo);
 
-                        for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
-                        {
-                            GameObject instanceGO = CreateGameObject($"{iInstance}", subCmdGO);
-                            instanceGO.transform.position = matrices[iInstance].ExtractPosition();
-                            instanceGO.transform.rotation = matrices[iInstance].ExtractRotation();
-                            instanceGO.transform.localScale = matrices[iInstance].ExtractScale();
+            //            for (int iInstance = 0; iInstance < instanceCount; ++iInstance)
+            //            {
+            //                GameObject instanceGO = CreateGameObject($"{iInstance}", subCmdGO);
+            //                instanceGO.transform.position = matrices[iInstance].ExtractPosition();
+            //                instanceGO.transform.rotation = matrices[iInstance].ExtractRotation();
+            //                instanceGO.transform.localScale = matrices[iInstance].ExtractScale();
 
-                            MeshFilter mf = instanceGO.AddComponent<MeshFilter>();
-                            MeshRenderer mr = instanceGO.AddComponent<MeshRenderer>();
-                            mf.mesh = debugMesh;
+            //                MeshFilter mf = instanceGO.AddComponent<MeshFilter>();
+            //                MeshRenderer mr = instanceGO.AddComponent<MeshRenderer>();
+            //                mf.mesh = debugMesh;
 
-                            Material indirectMaterial = _assetManager.GetMaterial(indirectCmdInfo.IndirectKey.MaterialID);
-                            if (!materialMap.TryGetValue(indirectMaterial, out var debugMaterial))
-                            {
-                                debugMaterial = new Material(indirectMaterial);
-                                debugMaterial.DisableKeyword("ZGAME_INDIRECT");
-                                materialMap.Add(indirectMaterial, debugMaterial);
-                            }
-                            mr.material = debugMaterial;
+            //                Material indirectMaterial = _assetManager.GetMaterial(indirectCmdInfo.IndirectKey.MaterialID);
+            //                if (!materialMap.TryGetValue(indirectMaterial, out var debugMaterial))
+            //                {
+            //                    debugMaterial = new Material(indirectMaterial);
+            //                    debugMaterial.DisableKeyword("ZGAME_INDIRECT");
+            //                    materialMap.Add(indirectMaterial, debugMaterial);
+            //                }
+            //                mr.material = debugMaterial;
 
-                            mpb.Clear();
-                            for (int iProperty = 0; iProperty < propertyCount; ++iProperty)
-                            {
-                                mpb.SetVector(Utility.s_IndirectPeopertyIDs[iProperty], properties[iProperty][iInstance]);
-                            }
-                            mr.SetPropertyBlock(mpb);
-                        }
-                    }
-                }
-            }
+            //                mpb.Clear();
+            //                for (int iProperty = 0; iProperty < propertyCount; ++iProperty)
+            //                {
+            //                    mpb.SetVector(Utility.s_IndirectPeopertyIDs[iProperty], properties[iProperty][iInstance]);
+            //                }
+            //                mr.SetPropertyBlock(mpb);
+            //            }
+            //        }
+            //    }
+            //}
         }
 
         GameObject CreateGameObject(string name, GameObject parent)

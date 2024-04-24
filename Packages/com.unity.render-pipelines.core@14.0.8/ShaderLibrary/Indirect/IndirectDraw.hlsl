@@ -57,16 +57,8 @@ void ZGmae_Indirect_Setup(uint svVertexID, uint svInstanceID)
     gZGameVertexID = svVertexID;
     gZGameInstanceID = svInstanceID;
 
-    int originCommandID = GetCommandID(0);
-    int indirectID = originCommandID >> 4;
-    int splitIndex = originCommandID & 0x0000000F;
-
-    //int indirectArgsIndex = indirectID * kMaxCullingSet + splitIndex;
-
+    int indirectID = GetCommandID(0);
     int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-    int batchInstanceCount = BatchDescriptorBuffer[indirectID].y;
-    instanceOffset += batchInstanceCount * splitIndex;
-
     int instanceIndex = VisibilityBuffer[instanceOffset + gZGameInstanceID].x;
     gZGameInstanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
 

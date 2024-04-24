@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -18,6 +20,7 @@ namespace ZGame.Indirect
         int[] _unitIndices;
         List<IndirectVertexData> _unitVertices;
         Dictionary<IndirectVertexData, int> _unitVertexMap;
+        List<MeshInfo> _meshInfos;
 
         GraphicsBuffer _indexBuffer;
         GraphicsBuffer _vertexBuffer;
@@ -35,6 +38,7 @@ namespace ZGame.Indirect
             _unitIndices = new int[unitMeshIndexCount];
             _unitVertices = new List<IndirectVertexData>(unitMeshIndexCount);
             _unitVertexMap = new Dictionary<IndirectVertexData, int>(unitMeshIndexCount);
+            _meshInfos = new List<MeshInfo>();
 
             _indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _indexCapacity, sizeof(int));
             _vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _vertexCapacity, IndirectVertexData.c_Size);
@@ -42,6 +46,9 @@ namespace ZGame.Indirect
 
         public void Dispose()
         {
+            foreach(var info in _meshInfos)
+                info.Dispose();
+
             _indexBuffer.Release();
             _vertexBuffer.Release();
         }
@@ -73,7 +80,7 @@ namespace ZGame.Indirect
             SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
 
             int unitMeshIndexCount = _unitMeshTriangleCount * 3;
-            List<UnitMeshInfo> unitMeshInfos = new List<UnitMeshInfo>();
+            UnsafeList<UnitMeshInfo> unitMeshInfos = new UnsafeList<UnitMeshInfo>(1, Allocator.Persistent);
 
             int[] indices = mesh.triangles;
             Vector3[] positions = mesh.vertices;
@@ -152,9 +159,10 @@ namespace ZGame.Indirect
 
             MeshInfo meshInfo = new MeshInfo()
             {
-                MeshKey = meshKey,
                 UnitMeshInfos = unitMeshInfos,
             };
+
+            _meshInfos.Add(meshInfo);
 
             return meshInfo;
         }
@@ -262,15 +270,15 @@ namespace ZGame.Indirect
             return debugMesh;
         }
 
-        public void CreateDebugGameObject(MeshInfo meshInfo, Vector3 position)
+        public void CreateDebugGameObject(MeshKey meshKey, MeshInfo meshInfo, Vector3 position)
         {
             Unity.Mathematics.Random random = new Unity.Mathematics.Random(1234);
 
-            GameObject root = new GameObject($"{meshInfo.MeshKey.Mesh.name}-{meshInfo.MeshKey.SubmeshIndex}-{meshInfo.MeshKey.FlipZ}-{meshInfo.UnitMeshInfos.Count}");
+            GameObject root = new GameObject($"{meshKey.Mesh.name}-{meshKey.SubmeshIndex}-{meshKey.FlipZ}-{meshInfo.UnitMeshInfos.Length}");
             root.transform.position = position;
 
             int unitMeshIndex = 0;
-            List<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
+            UnsafeList<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
             foreach (UnitMeshInfo unitMeshInfo in unitMeshInfos)
             {
                 Mesh debugMesh = CreateDebugMesh(unitMeshInfo);

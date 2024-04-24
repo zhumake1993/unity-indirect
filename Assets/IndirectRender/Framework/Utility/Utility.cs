@@ -1,6 +1,9 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -24,15 +27,13 @@ namespace ZGame.Indirect
         public const int c_UserIDInitialCapacity = 16 * 1024;
         public const int c_CmdIDInitialCapacity = 16 * 1024;
 
-        public const int c_MaxPackedPlaneCount = 16; // must be equal to the counterparts in CullingCommon.hlsl
-        public const int c_MaxCullingSet = 5; // camera + 4 splits
+        public const int c_MaxPackedPlaneCount = 16; // must be equal to the counterparts in FrustumCulling.hlsl
 
-        // must be equal to the counterparts in QuadTreeCommon.hlsl
-        public const int c_QuadTreeLod0NodeSize = 64;
-        public const int c_QuadTreeSubNodeSize = 8;
-        public const int c_QuadTreeSubNodeRange = 8;
-        public const int c_QuadTreeMaxLodNum = 8;
-        public const int c_QuadTreeNodeHeight = 16;
+        //public const int c_QuadTreeLod0NodeSize = 64;
+        //public const int c_QuadTreeSubNodeSize = 8;
+        //public const int c_QuadTreeSubNodeRange = 8;
+        //public const int c_QuadTreeMaxLodNum = 8;
+        //public const int c_QuadTreeNodeHeight = 16;
 
         public static int[] s_IndirectPeopertyIDs = new int[4]
         {   Shader.PropertyToID("_IndirectPeoperty0"),
@@ -80,13 +81,21 @@ namespace ZGame.Indirect
         [System.Diagnostics.Conditional("ENABLE_PROFILER")]
         public static void LogError(string message)
         {
-            Debug.LogError($"[Indirect] {message}");
+#if ZGAME_ENABLE_LOG
+            ZLog.Error(ZLogModule.EngineRendering, "[Indirect] {0}", message);
+#else
+            Debug.LogError(message);
+#endif
         }
 
         [System.Diagnostics.Conditional("ENABLE_PROFILER")]
         public static void LogWarning(string message)
         {
-            Debug.Log($"[Indirect] {message}");
+#if ZGAME_ENABLE_LOG
+            ZLog.Error(ZLogModule.EngineRendering, "[Indirect] {0}", message);
+#else
+            Debug.LogError(message);
+#endif
         }
 
         [System.Diagnostics.Conditional("ENABLE_PROFILER")]

@@ -8,7 +8,6 @@ using UnityEngine.Rendering;
 
 namespace ZGame.Indirect
 {
-    // must be equal to the macros in CullingCommon.hlsl
     public enum IntersectResult
     {
         In = 0,
@@ -211,6 +210,68 @@ namespace ZGame.Indirect
 
                 planes[i >> 2] = p;
             }
+        }
+
+        public static IntersectResult Intersect(UnsafeList<PlanePacket4> cullingPlanePackets, AABB a)
+        {
+            float4 mx = a.Center.xxxx;
+            float4 my = a.Center.yyyy;
+            float4 mz = a.Center.zzzz;
+
+            float4 ex = a.Extents.xxxx;
+            float4 ey = a.Extents.yyyy;
+            float4 ez = a.Extents.zzzz;
+
+            int4 outCounts = 0;
+            int4 inCounts = 0;
+
+            for (int i = 0; i < cullingPlanePackets.Length; i++)
+            {
+                var p = cullingPlanePackets[i];
+                float4 distances = Dot4(p.Xs, p.Ys, p.Zs, mx, my, mz) + p.Distances;
+                float4 radii = Dot4(ex, ey, ez, math.abs(p.Xs), math.abs(p.Ys), math.abs(p.Zs));
+
+                outCounts += (int4)(distances + radii < 0);
+                inCounts += (int4)(distances >= radii);
+            }
+
+            int inCount = math.csum(inCounts);
+            int outCount = math.csum(outCounts);
+
+            if (outCount != 0)
+                return IntersectResult.Out;
+            else
+                return (inCount == 4 * cullingPlanePackets.Length) ? IntersectResult.In : IntersectResult.Partial;
+        }
+
+        public static IntersectResult IntersectNoPartial(UnsafeList<PlanePacket4> cullingPlanePackets, AABB a)
+        {
+            float4 mx = a.Center.xxxx;
+            float4 my = a.Center.yyyy;
+            float4 mz = a.Center.zzzz;
+
+            float4 ex = a.Extents.xxxx;
+            float4 ey = a.Extents.yyyy;
+            float4 ez = a.Extents.zzzz;
+
+            int4 masks = 0;
+
+            for (int i = 0; i < cullingPlanePackets.Length; i++)
+            {
+                var p = cullingPlanePackets[i];
+                float4 distances = Dot4(p.Xs, p.Ys, p.Zs, mx, my, mz) + p.Distances;
+                float4 radii = Dot4(ex, ey, ez, math.abs(p.Xs), math.abs(p.Ys), math.abs(p.Zs));
+
+                masks += (int4)(distances + radii <= 0);
+            }
+
+            int outCount = math.csum(masks);
+            return outCount > 0 ? IntersectResult.Out : IntersectResult.In;
+        }
+
+        private static float4 Dot4(float4 xs, float4 ys, float4 zs, float4 mx, float4 my, float4 mz)
+        {
+            return xs * mx + ys * my + zs * mz;
         }
     }
 }

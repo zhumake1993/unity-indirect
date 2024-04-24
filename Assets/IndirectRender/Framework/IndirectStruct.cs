@@ -16,7 +16,6 @@ namespace ZGame.Indirect
 
         public int InstanceCapacity;
         public int BatchCapacity;
-        public int IndexSegmentCapacity;
 
         public QuadTreeSetting QuadTreeSetting;
 
@@ -31,19 +30,11 @@ namespace ZGame.Indirect
 
     public struct QuadTreeSetting
     {
+        public int MaxLod;
+        public int Lod0NodeSize;
+        public int NodeHeight;
         public int3 WorldOrigin;
         public int3 MaxLodRange;
-        public int MaxLod;
-    }
-
-    public class ComputerShaderCollection
-    {
-        public ComputeShader AdjustDispatchArgCS;
-        public ComputeShader QuadTreeBuildCS;
-        public ComputeShader PopulateInstanceIndexCS;
-        public ComputeShader QuadTreeCullingCS;
-        public ComputeShader FrustumCullingCS;
-        public ComputeShader PopulateVisibilityAndIndirectArgCS;
     }
 
     public struct IndirectVertexData : IEquatable<IndirectVertexData>
@@ -144,21 +135,26 @@ namespace ZGame.Indirect
         }
     }
 
-    public struct MeshInfo
-    {
-        public MeshKey MeshKey; // need???
-        public List<UnitMeshInfo> UnitMeshInfos;
-
-        public static MeshInfo s_Invalid = new MeshInfo { MeshKey = MeshKey.s_Invalid, UnitMeshInfos = null };
-        public bool IsValid => MeshKey != MeshKey.s_Invalid && UnitMeshInfos != null && UnitMeshInfos.Count > 0;
-    }
-
     public struct UnitMeshInfo
     {
         public int IndexOffset;
         public int VertexOffset;
         public int VertexCount;
         public AABB AABB;
+    }
+
+    public struct MeshInfo
+    {
+        public UnsafeList<UnitMeshInfo> UnitMeshInfos;
+
+        public static MeshInfo s_Invalid = new MeshInfo { UnitMeshInfos = new UnsafeList<UnitMeshInfo> { Ptr = null } };
+        public bool IsValid => UnitMeshInfos.IsCreated && UnitMeshInfos.Length > 0;
+
+        public void Dispose()
+        {
+            if (UnitMeshInfos.IsCreated)
+                UnitMeshInfos.Dispose();
+        }
     }
 
     public struct MeshSliceInfo : IEquatable<MeshSliceInfo>
@@ -266,7 +262,6 @@ namespace ZGame.Indirect
     public struct IndirectCmdInfo
     {
         public IndirectKey IndirectKey;
-        public int MeshID;
         public int InstanceCount;
         public Chunk InstanceDataChunk;
         public UnsafeList<IndirectSubCmdInfo> SubCmds;
@@ -283,10 +278,21 @@ namespace ZGame.Indirect
         public float4 Center_IndirectID;
         public float4 Extents_DataOffset;
         public int4 UnitMeshInfo;
-        public int4 QuadTreeNodeCoordAndLod;
-        public int4 QuadTreeSubNodeMask;
 
-        public const int c_SizeF4 = 5;
+        public const int c_SizeF4 = 3;
         public const int c_Size = c_SizeF4 * 16;
+    }
+
+    public struct QuadTreeAABBInfo
+    {
+        public int Index;
+        public AABB AABB;
+        public int4 Coord;
+    }
+
+    public struct OffsetSizeF4
+    {
+        public int OffsetF4;
+        public int SizeF4;
     }
 }
