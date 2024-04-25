@@ -4,9 +4,7 @@
 #define UNITY_INDIRECT_DRAW_ARGS IndirectDrawIndexedArgs
 #include "UnityIndirect.cginc"
 
-#include "InstanceDescriptor.hlsl"
-
-//#define kMaxCullingSet 5
+#include "IndirectDescriptor.hlsl"
 
 struct IndirectVertexData
 {
@@ -20,25 +18,22 @@ struct IndirectVertexData
     float2 uv3;
 };
 
-static uint gZGameVertexID;
-static uint gZGameInstanceID;
-static InstanceDescriptor gZGameInstanceDescriptor;
-static float4x4 gZGameWorldMatrix;
-
-// x: instance offset
-StructuredBuffer<int4> BatchDescriptorBuffer;
-
+StructuredBuffer<MeshletDescriptor> MeshletDescriptorBuffer;
+StructuredBuffer<BatchDescriptor> BatchDescriptorBuffer;
 ByteAddressBuffer InstanceDataBuffer;
 
-// x: visible index
-StructuredBuffer<int4> VisibilityBuffer;
+static uint gZGameVertexID;
+static uint gZGameInstanceID;
+static MeshletDescriptor gZGameMeshletDescriptor;
+static float4x4 gZGameWorldMatrix;
 
+StructuredBuffer<int4> VisibilityBuffer;
 StructuredBuffer<int> IndirectIndexBuffer;
 StructuredBuffer<IndirectVertexData> IndirectVertexBuffer;
 
 float4x4 ZGame_Indirect_Load_Matrix()
 {
-    int offset = gZGameInstanceDescriptor.extents_dataOffset.w;
+    int offset = gZGameMeshletDescriptor.dataOffset;
     
     float4 p1 = asfloat(InstanceDataBuffer.Load4(offset + 0 * 16));
     float4 p2 = asfloat(InstanceDataBuffer.Load4(offset + 1 * 16));
@@ -58,17 +53,17 @@ void ZGmae_Indirect_Setup(uint svVertexID, uint svInstanceID)
     gZGameInstanceID = svInstanceID;
 
     int indirectID = GetCommandID(0);
-    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-    int instanceIndex = VisibilityBuffer[instanceOffset + gZGameInstanceID].x;
-    gZGameInstanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+    int indexOffset = BatchDescriptorBuffer[indirectID].offset;
+    int meshletIndex = VisibilityBuffer[indexOffset + gZGameInstanceID].x;
+    gZGameMeshletDescriptor = MeshletDescriptorBuffer[meshletIndex];
 
     gZGameWorldMatrix = ZGame_Indirect_Load_Matrix();
 }
 
 IndirectVertexData ZGame_Indirect_Get_IndirectVertexData()
 {
-    int indexOffset = gZGameInstanceDescriptor.unitMeshInfo.x;
-    int vertexOffset = gZGameInstanceDescriptor.unitMeshInfo.y;
+    int indexOffset = gZGameMeshletDescriptor.indexOffset;
+    int vertexOffset = gZGameMeshletDescriptor.vertexOffset;
 
     int index = IndirectIndexBuffer[indexOffset + gZGameVertexID];
     IndirectVertexData vertexData = IndirectVertexBuffer[vertexOffset + index];
@@ -78,8 +73,8 @@ IndirectVertexData ZGame_Indirect_Get_IndirectVertexData()
 
 float4 ZGmae_Indirect_Get_Float4(int index)
 {
-    int offset = gZGameInstanceDescriptor.extents_dataOffset.w;
-    int needInverse = gZGameInstanceDescriptor.unitMeshInfo.z;
+    int offset = gZGameMeshletDescriptor.dataOffset;
+    int needInverse = gZGameMeshletDescriptor.needInverse;
     offset += 3 * 16 + 3 * 16 * needInverse + index * 16;
     
     return asfloat(InstanceDataBuffer.Load4(offset));

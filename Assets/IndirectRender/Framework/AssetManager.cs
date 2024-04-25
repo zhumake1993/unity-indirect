@@ -28,10 +28,10 @@ namespace ZGame.Indirect
             _brg = brg;
 
             _meshIDGenerator = new IDGenerator();
-            _meshIDGenerator.Init(Utility.c_MeshIDInitialCapacity);
+            _meshIDGenerator.Init(256);
 
             _materialIDGenerator = new IDGenerator();
-            _materialIDGenerator.Init(Utility.c_MaterialIDInitialCapacity);
+            _materialIDGenerator.Init(256);
         }
 
         public void Dispose()

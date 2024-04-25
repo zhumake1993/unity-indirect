@@ -4,22 +4,74 @@ using UnityEngine;
 
 namespace ZGame.Indirect
 {
+    public class BufferPool
+    {
+        GraphicsBuffer.Target _target;
+        int _count;
+        int _stride;
+        List<GraphicsBuffer> _unusedBuffers = new List<GraphicsBuffer>();
+        List<GraphicsBuffer> _usedBuffers = new List<GraphicsBuffer>();
+
+        public BufferPool(GraphicsBuffer.Target target, int count, int stride)
+        {
+            _target = target;
+            _count = count;
+            _stride = stride;
+        }
+
+        public void Dispose()
+        {
+            Recycle();
+
+            foreach (var buffer in _unusedBuffers)
+                buffer.Dispose();
+        }
+
+        public GraphicsBuffer Get()
+        {
+            if (_unusedBuffers.Count > 0)
+            {
+                var buffer = _unusedBuffers[_unusedBuffers.Count - 1];
+                _unusedBuffers.RemoveAt(_unusedBuffers.Count - 1);
+                _usedBuffers.Add(buffer);
+                return buffer;
+            }
+            else
+            {
+                var buffer = new GraphicsBuffer(_target, _count, _stride);
+                _usedBuffers.Add(buffer);
+                return buffer;
+            }
+        }
+
+        public void Recycle()
+        {
+            foreach (var buffer in _usedBuffers)
+                _unusedBuffers.Add(buffer);
+            _usedBuffers.Clear();
+        }
+    }
+
     public class BufferManager
     {
         IndirectRenderSetting _setting;
 
-        public GraphicsBuffer IndexBuffer;
         public GraphicsBuffer InstanceDescriptorBuffer;
+        public GraphicsBuffer MeshletDescriptorBuffer;
+        public GraphicsBuffer CmdDescriptorBuffer;
         public GraphicsBuffer BatchDescriptorBuffer;
         public GraphicsBuffer InstanceDataBuffer;
 
-        List<GraphicsBuffer> _unusedVisibilityBuffers = new List<GraphicsBuffer>();
-        List<GraphicsBuffer> _usedVisibilityBuffers = new List<GraphicsBuffer>();
-        List<GraphicsBuffer> _unusedIndirectArgsBuffers = new List<GraphicsBuffer>();
-        List<GraphicsBuffer> _usedIndirectArgsBuffers = new List<GraphicsBuffer>();
+        public BufferPool InputIndexBufferPool;
+        public BufferPool OutputIndexBufferPool;
+        public BufferPool VisibilityBufferPool;
+        public BufferPool IndirectArgsBufferPool;
 
-        public static readonly int s_IndexBufferID = Shader.PropertyToID("IndexBuffer");
+        public static readonly int s_InputIndexBufferID = Shader.PropertyToID("InputIndexBuffer");
+        public static readonly int s_OutputIndexBufferID = Shader.PropertyToID("OutputIndexBuffer");
         public static readonly int s_InstanceDescriptorBufferID = Shader.PropertyToID("InstanceDescriptorBuffer");
+        public static readonly int s_MeshletDescriptorBufferID = Shader.PropertyToID("MeshletDescriptorBuffer");
+        public static readonly int s_CmdDescriptorBufferID = Shader.PropertyToID("CmdDescriptorBuffer");
         public static readonly int s_BatchDescriptorBufferID = Shader.PropertyToID("BatchDescriptorBuffer");
         public static readonly int s_InstanceDataBufferID = Shader.PropertyToID("InstanceDataBuffer");
         public static readonly int s_VisibilityBufferID = Shader.PropertyToID("VisibilityBuffer");
@@ -29,83 +81,44 @@ namespace ZGame.Indirect
         {
             _setting = setting;
 
-            IndexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, Utility.c_SizeOfInt4);
             InstanceDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, InstanceDescriptor.c_Size);
-            BatchDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.BatchCapacity, Utility.c_SizeOfInt4);
-            InstanceDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)(setting.InstanceDataMaxSizeBytes * setting.InstanceDataNumMaxSizeBlocks) / Utility.c_SizeOfFloat4, Utility.c_SizeOfFloat4);
+            MeshletDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.MeshletCapacity, MeshletDescriptor.c_Size);
+            CmdDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.CmdCapacity, CmdDescriptor.c_Size);
+            BatchDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.BatchCapacity, BatchDescriptor.c_Size);
+            InstanceDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)(setting.InstanceDataMaxSizeBytes) / Utility.c_SizeOfFloat4, Utility.c_SizeOfFloat4);
+
+            InputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
+            OutputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
+            VisibilityBufferPool = new BufferPool(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, Utility.c_SizeOfInt4);
+            IndirectArgsBufferPool = new BufferPool(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, setting.BatchCapacity, GraphicsBuffer.IndirectDrawArgs.size);
         }
 
         public void Dispose()
         {
-            IndexBuffer.Dispose();
             InstanceDescriptorBuffer.Dispose();
+            MeshletDescriptorBuffer.Dispose();
+            CmdDescriptorBuffer.Dispose();
             BatchDescriptorBuffer.Dispose();
             InstanceDataBuffer.Dispose();
 
-            foreach (var buffer in _unusedVisibilityBuffers)
-                buffer.Dispose();
-            _unusedVisibilityBuffers.Clear();
-
-            foreach (var buffer in _usedVisibilityBuffers)
-                buffer.Dispose();
-            _usedVisibilityBuffers.Clear();
-
-            foreach (var buffer in _unusedIndirectArgsBuffers)
-                buffer.Dispose();
-            _unusedIndirectArgsBuffers.Clear();
-
-            foreach (var buffer in _usedIndirectArgsBuffers)
-                buffer.Dispose();
-            _usedIndirectArgsBuffers.Clear();
+            InputIndexBufferPool.Dispose();
+            OutputIndexBufferPool.Dispose();
+            VisibilityBufferPool.Dispose();
+            IndirectArgsBufferPool.Dispose();
         }
 
-        public GraphicsBuffer GetVisibilityBuffer()
+        public void RecycleIndexBuffer()
         {
-            if (_unusedVisibilityBuffers.Count > 0)
-            {
-                var buffer = _unusedVisibilityBuffers[_unusedVisibilityBuffers.Count - 1];
-                _unusedVisibilityBuffers.RemoveAt(_unusedVisibilityBuffers.Count - 1);
-                _usedVisibilityBuffers.Add(buffer);
-                return buffer;
-            }
-            else
-            {
-                var buffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _setting.InstanceCapacity, Utility.c_SizeOfInt4);
-                _usedVisibilityBuffers.Add(buffer);
-                return buffer;
-            }
-        }
-
-        public GraphicsBuffer GetIndirectArgsBuffer()
-        {
-            if (_unusedIndirectArgsBuffers.Count > 0)
-            {
-                var buffer = _unusedIndirectArgsBuffers[_unusedIndirectArgsBuffers.Count - 1];
-                _unusedIndirectArgsBuffers.RemoveAt(_unusedIndirectArgsBuffers.Count - 1);
-                _usedIndirectArgsBuffers.Add(buffer);
-                return buffer;
-            }
-            else
-            {
-                var buffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, _setting.BatchCapacity, GraphicsBuffer.IndirectDrawArgs.size);
-                _usedIndirectArgsBuffers.Add(buffer);
-                return buffer;
-            }
+            InputIndexBufferPool.Recycle();
+            OutputIndexBufferPool.Recycle();
         }
 
         public void Recycle()
         {
-            foreach (var buffer in _usedVisibilityBuffers)
-            {
-                _unusedVisibilityBuffers.Add(buffer);
-            }
-            _usedVisibilityBuffers.Clear();
-
-            foreach (var buffer in _usedIndirectArgsBuffers)
-            {
-                _unusedIndirectArgsBuffers.Add(buffer);
-            }
-            _usedIndirectArgsBuffers.Clear();
+            InputIndexBufferPool.Recycle();
+            OutputIndexBufferPool.Recycle();
+            VisibilityBufferPool.Recycle();
+            IndirectArgsBufferPool.Recycle();
         }
     }
 }

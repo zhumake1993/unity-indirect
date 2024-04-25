@@ -93,18 +93,18 @@ public class MeshMergerTest : MonoBehaviour
             MeshKey meshKey = itr.Current.Key;
             MeshInfo meshInfo = itr.Current.Value;
 
-            log += $"mesh={meshKey.Mesh.name},SubmeshIndex={meshKey.SubmeshIndex},FlipZ={meshKey.FlipZ},UnitMeshCount={meshInfo.UnitMeshInfos.Length}\n";
+            log += $"mesh={meshKey.Mesh.name},SubmeshIndex={meshKey.SubmeshIndex},FlipZ={meshKey.FlipZ},UnitMeshCount={meshInfo.MeshletInfos.Length}\n";
 
             UnityEngine.Rendering.SubMeshDescriptor subMeshDescriptor = meshKey.Mesh.GetSubMesh(meshKey.SubmeshIndex);
             log += $"subMeshDescriptor.indexStart={subMeshDescriptor.indexStart},indexCount={subMeshDescriptor.indexCount}," +
                 $"baseVertex={subMeshDescriptor.baseVertex},firstVertex={subMeshDescriptor.firstVertex}," +
                 $"vertexCount={subMeshDescriptor.vertexCount}\n";
 
-            UnsafeList<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
-            foreach (UnitMeshInfo unitMeshInfo in unitMeshInfos)
+            UnsafeList<MeshletInfo> meshletInfos = meshInfo.MeshletInfos;
+            foreach (MeshletInfo meshletInfo in meshletInfos)
             {
-                log += $"\tIndexOffset={unitMeshInfo.IndexOffset},VertexOffset={unitMeshInfo.VertexOffset},VertexCount={unitMeshInfo.VertexCount}" +
-                    $"AABB.Center={unitMeshInfo.AABB.Center},AABB.Extents={unitMeshInfo.AABB.Extents}\n";
+                log += $"\tIndexOffset={meshletInfo.IndexOffset},VertexOffset={meshletInfo.VertexOffset},VertexCount={meshletInfo.VertexCount}" +
+                    $"AABB.Center={meshletInfo.AABB.Center},AABB.Extents={meshletInfo.AABB.Extents}\n";
             }
         }
         GUILayout.Label(log, _style);
@@ -121,10 +121,10 @@ public class MeshMergerTest : MonoBehaviour
             {
                 MeshInfo meshInfo = pair.Value;
 
-                UnsafeList<UnitMeshInfo> unitMeshInfos = meshInfo.UnitMeshInfos;
-                foreach (UnitMeshInfo unitMeshInfo in unitMeshInfos)
+                UnsafeList<MeshletInfo> meshletInfos = meshInfo.MeshletInfos;
+                foreach (MeshletInfo meshletInfo in meshletInfos)
                 {
-                    Gizmos.DrawWireCube(unitMeshInfo.AABB.Center + new Unity.Mathematics.float3(index * 1.5f, 0, 0), unitMeshInfo.AABB.Extents * 2);
+                    Gizmos.DrawWireCube(meshletInfo.AABB.Center + new Unity.Mathematics.float3(index * 1.5f, 0, 0), meshletInfo.AABB.Extents * 2);
                 }
                 index++;
             }

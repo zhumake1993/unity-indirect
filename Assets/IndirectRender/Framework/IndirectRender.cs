@@ -20,9 +20,11 @@ namespace ZGame.Indirect
         MeshMerger _meshMerger = new MeshMerger();
         AssetManager _assetManager = new AssetManager();
         BufferManager _bufferManager = new BufferManager();
-        QuadTree _quadTree = new QuadTree();
+        DispatchHelper _dispatchHelper = new DispatchHelper();
         IndirectPipeline _indirectPipeline = new IndirectPipeline();
         CullingHelper _cullingHelper = new CullingHelper();
+
+        QuadTree _quadTree = new QuadTree();
 
         CommandBuffer _cmd = new CommandBuffer();
         MaterialPropertyBlock _mpb;
@@ -37,7 +39,7 @@ namespace ZGame.Indirect
         static readonly int s_indirectIndexBufferID = Shader.PropertyToID("IndirectIndexBuffer");
         static readonly int s_indirectVertexBufferID = Shader.PropertyToID("IndirectVertexBuffer");
 
-        public void Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS)
+        public void Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS, ComputeShader adjustDispatchArgCS)
         {
             if (!CheckSetting(setting))
                 return;
@@ -46,15 +48,17 @@ namespace ZGame.Indirect
             _unmanaged->Init(setting);
 
             _brg = new BatchRendererGroup(OnPerformCulling, IntPtr.Zero);
-            _meshMerger.Init(setting.IndexCapacity, setting.VertexCapacity, setting.UnitMeshTriangleCount);
+            _meshMerger.Init(setting.IndexCapacity, setting.VertexCapacity, setting.MeshletTriangleCount);
             _assetManager.Init(_meshMerger, _brg);
             _bufferManager.Init(setting);
-            _quadTree.Init(setting);
-            _indirectPipeline.Init(setting, indirectPipelineCS, _bufferManager);
+            _dispatchHelper.Init(adjustDispatchArgCS);
+            _indirectPipeline.Init(setting, indirectPipelineCS, _bufferManager, _dispatchHelper);
             _cullingHelper.Init();
 
+            _quadTree.Init(setting);
+
             _mpb = new MaterialPropertyBlock();
-            _mpb.SetBuffer(BufferManager.s_InstanceDescriptorBufferID, _bufferManager.InstanceDescriptorBuffer);
+            _mpb.SetBuffer(BufferManager.s_MeshletDescriptorBufferID, _bufferManager.MeshletDescriptorBuffer);
             _mpb.SetBuffer(BufferManager.s_BatchDescriptorBufferID, _bufferManager.BatchDescriptorBuffer);
             _mpb.SetBuffer(BufferManager.s_InstanceDataBufferID, _bufferManager.InstanceDataBuffer);
             _mpb.SetBuffer(s_indirectVertexBufferID, _meshMerger.GetVertexBuffer());
@@ -78,14 +82,6 @@ namespace ZGame.Indirect
                 return false;
             }
 
-            if (setting.MaxInstanceCountPerCmd * setting.NumMaxInstanceCountPerCmd > setting.InstanceCapacity)
-            {
-                Utility.LogError($"InstanceCapacity({setting.InstanceCapacity}) must be at least " +
-                    $"MaxInstanceCountPerCmd({setting.MaxInstanceCountPerCmd}) * NumMaxInstanceCountPerCmd({setting.NumMaxInstanceCountPerCmd})");
-
-                return false;
-            }
-
             return true;
         }
 
@@ -94,9 +90,11 @@ namespace ZGame.Indirect
             if (!_initialized)
                 return;
 
+            _quadTree.Dispose();
+
             _cullingHelper.Dispose();
             _indirectPipeline.Dispose();
-            _quadTree.Dispose();
+            _dispatchHelper.Dispose();
             _bufferManager.Dispose();
             _assetManager.Dispose();
             _meshMerger.Dispose();
@@ -151,30 +149,43 @@ namespace ZGame.Indirect
             return _assetManager.GetMaterial(id);
         }
 
-        public int AddBatch(IndirectKey indirectKey, int meshID, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        public int AddBatch(UnsafeList<int> meshIDs, UnsafeList<IndirectKey> indirectKeys, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
             if (!_initialized)
                 return -1;
 
-            _assetManager.AddShaderLayout(indirectKey.MaterialID, new ShaderLayout
+            if (meshIDs.Length != indirectKeys.Length)
+                return -1;
+
+            foreach (var indirectKey in indirectKeys)
             {
-                NeedInverse = needInverse,
-                PeopertyCount = properties.Length
-            });
+                _assetManager.AddShaderLayout(indirectKey.MaterialID, new ShaderLayout
+                {
+                    NeedInverse = needInverse,
+                    PeopertyCount = properties.Length
+                });
+            }
+
+            UnsafeList<MeshInfo> meshInfos = new UnsafeList<MeshInfo>(meshIDs.Length, Allocator.TempJob);
+            for (int i = 0; i < meshIDs.Length; ++i)
+                meshInfos.Add(_assetManager.GetMeshInfo(meshIDs[i]));
+            meshIDs.Dispose();
 
             AddItem addItem = new AddItem
             {
-                UserID = _unmanaged->UserIDGenerator.GetID(),
-                IndirectKey = indirectKey,
-                MeshInfo = _assetManager.GetMeshInfo(meshID),
+                CmdID = _unmanaged->CmdIDGenerator.GetID(),
+                MeshInfos = meshInfos,
+                IndirectKeys = indirectKeys,
+                LodParam = lodParam,
                 NeedInverse = needInverse,
                 Matrices = matrices,
                 Properties = properties,
             };
+            _unmanaged->MaxCmdID = math.max(_unmanaged->MaxCmdID, addItem.CmdID);
 
             _unmanaged->AddCache.Add(addItem);
 
-            return addItem.UserID;
+            return addItem.CmdID;
         }
 
         public void RemoveBatch(int id)
@@ -258,9 +269,14 @@ namespace ZGame.Indirect
                 _unmanaged->InstanceDataDirtySegments.Clear();
 
                 foreach (var segment in _unmanaged->InstanceDescriptorDirtySegments)
-                    _bufferManager.InstanceDescriptorBuffer.SetData(_unmanaged->InstanceDescriptorArray, segment.OffsetF4, segment.OffsetF4, segment.SizeF4);
+                    _bufferManager.InstanceDescriptorBuffer.SetData(_unmanaged->InstanceDescriptorArray, segment.Offset, segment.Offset, segment.Size);
                 _unmanaged->InstanceDescriptorDirtySegments.Clear();
 
+                foreach (var segment in _unmanaged->MeshletDescriptorDirtySegments)
+                    _bufferManager.MeshletDescriptorBuffer.SetData(_unmanaged->MeshletDescriptorArray, segment.Offset, segment.Offset, segment.Size);
+                _unmanaged->MeshletDescriptorDirtySegments.Clear();
+
+                _bufferManager.CmdDescriptorBuffer.SetData(_unmanaged->CmdDescriptorArray, 0, 0, _unmanaged->MaxCmdID + 1);
                 _bufferManager.BatchDescriptorBuffer.SetData(_unmanaged->BatchDescriptorArray, 0, 0, _unmanaged->MaxIndirectID + 1);
 
                 _brg.SetIndirectCmdCount(_unmanaged->IndirectMap.Count);
@@ -272,60 +288,89 @@ namespace ZGame.Indirect
         {
             using (s_cullingCallbackMarker.Auto())
             {
+                _cmd.Clear();
+
                 _cullingHelper.UpdateCullinglanes(ref cullingContext);
 
                 if (cullingContext.viewType == BatchCullingViewType.Camera)
                 {
-                    _quadTree.Cull(_cullingHelper.GetCullinglanes(0), out UnsafeList<int4> visibleIndices, out UnsafeList<int4> partialIndices);
+                    UnsafeList<int4>* visibleIndices = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+                    UnsafeList<int4>* partialIndices = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+                    JobHandle jobHandle = _quadTree.Cull(_cullingHelper.GetCullinglanes(0), visibleIndices, partialIndices);
 
-                    GraphicsBuffer visibilityBuffer = _bufferManager.GetVisibilityBuffer();
-                    GraphicsBuffer indirectArgsBuffer = _bufferManager.GetIndirectArgsBuffer();
+                    _cmd.name = $"Indirect.Camera";
+
+                    GraphicsBuffer inputIndexBuffer = _bufferManager.InputIndexBufferPool.Get();
+                    GraphicsBuffer outputIndexBuffer = _bufferManager.OutputIndexBufferPool.Get();
+                    GraphicsBuffer visibilityBuffer = _bufferManager.VisibilityBufferPool.Get();
+                    GraphicsBuffer indirectArgsBuffer = _bufferManager.IndirectArgsBufferPool.Get();
 
                     indirectArgsBuffer.SetData(_unmanaged->IndirectArgsArray, 0, 0, (_unmanaged->MaxIndirectID + 1));
 
-                    _cmd.name = $"Indirect.Camera";
-                    _cmd.Clear();
-
-                    _cullingHelper.BuildCommandBuffer(_cmd, _indirectPipeline.IndirectPipelineCS, 0);
-                    _indirectPipeline.BuildCommandBuffer(_cmd, visibilityBuffer, indirectArgsBuffer, visibleIndices, partialIndices);
-                    Graphics.ExecuteCommandBuffer(_cmd);
-
-                    BatchCullingOutputDrawCommands outputDrawCommand = new BatchCullingOutputDrawCommands();
-
-                    outputDrawCommand.indirectDrawCommands = MemoryUtility.MallocNoTrack<BatchDrawCommandIndirect>(_unmanaged->IndirectMap.Count, Allocator.TempJob);
-                    outputDrawCommand.indirectDrawCommandCount = _unmanaged->IndirectMap.Count;
-
-                    int indirectIndex = 0;
-                    foreach (var pair in _unmanaged->IndirectMap)
                     {
-                        IndirectKey indirectKey = pair.Key;
-                        IndirectBatch indirectBatch = pair.Value;
+                        BatchCullingOutputDrawCommands outputDrawCommand = new BatchCullingOutputDrawCommands();
 
-                        BatchMaterialID batchMaterialID = _assetManager.GetBatchMaterialID(indirectKey.MaterialID);
-                        int indirectID = indirectBatch.IndirectID;
+                        outputDrawCommand.indirectDrawCommands = MemoryUtility.MallocNoTrack<BatchDrawCommandIndirect>(_unmanaged->IndirectMap.Count, Allocator.TempJob);
+                        outputDrawCommand.indirectDrawCommandCount = _unmanaged->IndirectMap.Count;
 
-                        BatchDrawCommandIndirect indirectCmd = new BatchDrawCommandIndirect()
+                        int indirectIndex = 0;
+                        foreach (var pair in _unmanaged->IndirectMap)
                         {
-                            topology = MeshTopology.Triangles,
-                            materialID = batchMaterialID,
-                            visibilityBufferHandle = visibilityBuffer.bufferHandle,
-                            indirectArgsBufferHandle = indirectArgsBuffer.bufferHandle,
-                            indirectArgsOffset = (uint)indirectID,
-                            renderingLayerMask = 0xffffffff,
-                            layer = indirectKey.Layer,
-                            shadowCastingMode = indirectKey.ShadowCastingMode,
-                            receiveShadows = indirectKey.ReceiveShadows,
-                            splitVisibilityMask = 0,
-                        };
+                            IndirectKey indirectKey = pair.Key;
+                            IndirectBatch indirectBatch = pair.Value;
 
-                        outputDrawCommand.indirectDrawCommands[indirectIndex++] = indirectCmd;
+                            BatchMaterialID batchMaterialID = _assetManager.GetBatchMaterialID(indirectKey.MaterialID);
+                            int indirectID = indirectBatch.IndirectID;
+
+                            BatchDrawCommandIndirect indirectCmd = new BatchDrawCommandIndirect()
+                            {
+                                topology = MeshTopology.Triangles,
+                                materialID = batchMaterialID,
+                                visibilityBufferHandle = visibilityBuffer.bufferHandle,
+                                indirectArgsBufferHandle = indirectArgsBuffer.bufferHandle,
+                                indirectArgsOffset = (uint)indirectID,
+                                renderingLayerMask = 0xffffffff,
+                                layer = indirectKey.Layer,
+                                shadowCastingMode = indirectKey.ShadowCastingMode,
+                                receiveShadows = indirectKey.ReceiveShadows,
+                                splitVisibilityMask = 0,
+                            };
+
+                            outputDrawCommand.indirectDrawCommands[indirectIndex++] = indirectCmd;
+                        }
+
+                        cullingOutput.drawCommands[0] = outputDrawCommand;
                     }
 
-                    cullingOutput.drawCommands[0] = outputDrawCommand;
+                    jobHandle.Complete();
+
+                    _cullingHelper.BuildCommandBuffer(_cmd, _indirectPipeline.IndirectPipelineCS, 0);
+                    _indirectPipeline.SerLodParam(_cmd, true);
+                    _indirectPipeline.BuildCommandBuffer(_cmd, visibilityBuffer, indirectArgsBuffer, inputIndexBuffer, outputIndexBuffer, *visibleIndices, *partialIndices);
+
+                    visibleIndices->Dispose();
+                    partialIndices->Dispose();
+                    MemoryUtility.Free(visibleIndices, Allocator.TempJob);
+                    MemoryUtility.Free(partialIndices, Allocator.TempJob);
                 }
                 else if (cullingContext.viewType == BatchCullingViewType.Light)
                 {
+                    _cmd.name = $"Indirect.Shadow";
+
                     int splitCount = cullingContext.cullingSplits.Length;
+
+                    UnsafeList<int4>** visibleIndicesArray = stackalloc UnsafeList<int4>*[splitCount];
+                    UnsafeList<int4>** partialIndicesArray = stackalloc UnsafeList<int4>*[splitCount];
+                    NativeArray<JobHandle> jobHandles = new NativeArray<JobHandle>(splitCount, Allocator.Temp);
+
+                    for (int iSplit = 0; iSplit < splitCount; ++iSplit)
+                    {
+                        UnsafeList<int4>* visibleIndices = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+                        UnsafeList<int4>* partialIndices = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+                        jobHandles[iSplit] = _quadTree.Cull(_cullingHelper.GetCullinglanes(0), visibleIndices, partialIndices);
+                        visibleIndicesArray[iSplit] = visibleIndices;
+                        partialIndicesArray[iSplit] = partialIndices;
+                    }
 
                     BatchCullingOutputDrawCommands outputDrawCommand = new BatchCullingOutputDrawCommands();
 
@@ -335,19 +380,12 @@ namespace ZGame.Indirect
 
                     for (int iSplit = 0; iSplit < splitCount; ++iSplit)
                     {
-                        _quadTree.Cull(_cullingHelper.GetCullinglanes(iSplit), out UnsafeList<int4> visibleIndices, out UnsafeList<int4> partialIndices);
-
-                        GraphicsBuffer visibilityBuffer = _bufferManager.GetVisibilityBuffer();
-                        GraphicsBuffer indirectArgsBuffer = _bufferManager.GetIndirectArgsBuffer();
+                        GraphicsBuffer inputIndexBuffer = _bufferManager.InputIndexBufferPool.Get();
+                        GraphicsBuffer outputIndexBuffer = _bufferManager.OutputIndexBufferPool.Get();
+                        GraphicsBuffer visibilityBuffer = _bufferManager.VisibilityBufferPool.Get();
+                        GraphicsBuffer indirectArgsBuffer = _bufferManager.IndirectArgsBufferPool.Get();
 
                         indirectArgsBuffer.SetData(_unmanaged->IndirectArgsArray, 0, 0, (_unmanaged->MaxIndirectID + 1));
-
-                        _cmd.name = $"Indirect.Shadow-{iSplit}";
-                        _cmd.Clear();
-
-                        _cullingHelper.BuildCommandBuffer(_cmd, _indirectPipeline.IndirectPipelineCS, iSplit);
-                        _indirectPipeline.BuildCommandBuffer(_cmd, visibilityBuffer, indirectArgsBuffer, visibleIndices, partialIndices);
-                        Graphics.ExecuteCommandBuffer(_cmd);
 
                         foreach (var pair in _unmanaged->IndirectMap)
                         {
@@ -373,9 +411,27 @@ namespace ZGame.Indirect
 
                             outputDrawCommand.indirectDrawCommands[indirectIndex++] = indirectCmd;
                         }
+
+                        jobHandles[iSplit].Complete();
+
+                        _cmd.BeginSample($"Split-{iSplit}");
+
+                        _cullingHelper.BuildCommandBuffer(_cmd, _indirectPipeline.IndirectPipelineCS, iSplit);
+                        _indirectPipeline.SerLodParam(_cmd, true);
+                        _indirectPipeline.BuildCommandBuffer(_cmd, visibilityBuffer, indirectArgsBuffer, inputIndexBuffer, outputIndexBuffer, *visibleIndicesArray[iSplit], *partialIndicesArray[iSplit]);
+
+                        _cmd.EndSample($"Split-{iSplit}");
                     }
 
                     cullingOutput.drawCommands[0] = outputDrawCommand;
+
+                    for (int iSplit = 0; iSplit < splitCount; ++iSplit)
+                    {
+                        visibleIndicesArray[iSplit]->Dispose();
+                        partialIndicesArray[iSplit]->Dispose();
+                        MemoryUtility.Free(visibleIndicesArray[iSplit], Allocator.TempJob);
+                        MemoryUtility.Free(partialIndicesArray[iSplit], Allocator.TempJob);
+                    }
                 }
                 else
                 {
@@ -384,6 +440,10 @@ namespace ZGame.Indirect
                 }
 
                 _cullingHelper.Dispose();
+
+                Graphics.ExecuteCommandBuffer(_cmd);
+
+                _bufferManager.RecycleIndexBuffer();
 
                 return new JobHandle();
             }

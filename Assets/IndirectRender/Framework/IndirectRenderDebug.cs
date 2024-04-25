@@ -11,9 +11,12 @@ namespace ZGame.Indirect
     {
         public IndirectRenderSetting IndirectRenderSetting;
         public MeshMergerStats MeshMergerStats;
-        public BuddyAllocatorStats InstanceIndicesBuddyAllocatorStats;
-        public BuddyAllocatorStats InstanceDataBuddyAllocatorStats;
-        public int TotalActualInstanceCount;
+        public BuddyAllocatorStats InstanceIndexBAStats;
+        public BuddyAllocatorStats MeshletIndexBAStats;
+        public BuddyAllocatorStats InstanceDataBAStats;
+        public int InstanceCount;
+        public int MeshletCount;
+        public int MaxCmdID;
         public int MaxIndirectID;
     }
 
@@ -28,9 +31,12 @@ namespace ZGame.Indirect
             {
                 IndirectRenderSetting = _unmanaged->Setting,
                 MeshMergerStats = _meshMerger.GetMeshMergerStats(),
-                InstanceIndicesBuddyAllocatorStats = _unmanaged->InstanceIndicesAllocator.GetStats(),
-                InstanceDataBuddyAllocatorStats = _unmanaged->InstanceDataAllocator.GetStats(),
-                TotalActualInstanceCount = _unmanaged->TotalActualInstanceCount,
+                InstanceIndexBAStats = _unmanaged->InstanceIndexAllocator.GetStats(),
+                MeshletIndexBAStats = _unmanaged->MeshletIndexAllocator.GetStats(),
+                InstanceDataBAStats = _unmanaged->InstanceDataAllocator.GetStats(),
+                InstanceCount = _unmanaged->InstanceCount,
+                MeshletCount = _unmanaged->MeshletCount,
+                MaxCmdID = _unmanaged->MaxCmdID,
                 MaxIndirectID = _unmanaged->MaxIndirectID,
             };
 

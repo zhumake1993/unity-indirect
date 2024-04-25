@@ -15,34 +15,28 @@ namespace ZGame.Indirect
 
         public ComputeShader IndirectPipelineCS => _indirectPipelineCS;
         ComputeShader _indirectPipelineCS;
-        int _indirectPipelineNoCullKernel;
-        int _indirectPipelineCullKernel;
+        int _instanceCullKernel;
+        int _meshletPopulateKernel;
+        int _meshletCullKernel;
 
         BufferManager _bufferManager;
+        DispatchHelper _dispatchHelper;
 
-        int[] _indexCount = new int[4] { 0, 0, 0, 0 };
+        public static readonly int s_EnableLodID = Shader.PropertyToID("_EnableLod");
+        public static readonly int s_CameraPositionID = Shader.PropertyToID("_CameraPosition");
+        public static readonly int s_CameraMatrixID = Shader.PropertyToID("_CameraMatrix");
 
-        bool _frustumCull = true;
-
-        public static readonly int s_IndexCountID = Shader.PropertyToID("_IndexCount");
-
-        public void Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS, BufferManager bufferManager)
+        public void Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS, BufferManager bufferManager, DispatchHelper dispatchHelper)
         {
             _setting = setting;
 
             _indirectPipelineCS = indirectPipelineCS;
-            _indirectPipelineNoCullKernel = _indirectPipelineCS.FindKernel("IndirectPipelineNoCull");
-            _indirectPipelineCullKernel = _indirectPipelineCS.FindKernel("IndirectPipelineCull");
+            _instanceCullKernel = _indirectPipelineCS.FindKernel("InstanceCull");
+            _meshletPopulateKernel = _indirectPipelineCS.FindKernel("MeshletPopulate");
+            _meshletCullKernel = _indirectPipelineCS.FindKernel("MeshletCull");
 
             _bufferManager = bufferManager;
-
-            _indirectPipelineCS.SetBuffer(_indirectPipelineNoCullKernel, BufferManager.s_IndexBufferID, _bufferManager.IndexBuffer);
-            _indirectPipelineCS.SetBuffer(_indirectPipelineNoCullKernel, BufferManager.s_InstanceDescriptorBufferID, _bufferManager.InstanceDescriptorBuffer);
-            _indirectPipelineCS.SetBuffer(_indirectPipelineNoCullKernel, BufferManager.s_BatchDescriptorBufferID, _bufferManager.BatchDescriptorBuffer);
-
-            _indirectPipelineCS.SetBuffer(_indirectPipelineCullKernel, BufferManager.s_IndexBufferID, _bufferManager.IndexBuffer);
-            _indirectPipelineCS.SetBuffer(_indirectPipelineCullKernel, BufferManager.s_InstanceDescriptorBufferID, _bufferManager.InstanceDescriptorBuffer);
-            _indirectPipelineCS.SetBuffer(_indirectPipelineCullKernel, BufferManager.s_BatchDescriptorBufferID, _bufferManager.BatchDescriptorBuffer);
+            _dispatchHelper = dispatchHelper;
         }
 
         public void Dispose()
@@ -57,7 +51,21 @@ namespace ZGame.Indirect
                 _indirectPipelineCS.EnableKeyword("_DISABLE_FRUSTUM_CULL");
         }
 
-        public void BuildCommandBuffer(CommandBuffer cmd, GraphicsBuffer visibilityBuffer, GraphicsBuffer indirectArgsBuffer, UnsafeList<int4> visibleIndices, UnsafeList<int4> partialIndices)
+        public void SerLodParam(CommandBuffer cmd, bool enable)
+        {
+            cmd.SetComputeIntParam(_indirectPipelineCS, s_EnableLodID, enable ? 1 : 0);
+
+            if (enable)
+            {
+                cmd.SetComputeVectorParam(_indirectPipelineCS, s_CameraPositionID, Camera.main.transform.position);
+                cmd.SetComputeMatrixParam(_indirectPipelineCS, s_CameraMatrixID, Camera.main.projectionMatrix);
+            }
+        }
+
+        public void BuildCommandBuffer(CommandBuffer cmd, 
+            GraphicsBuffer visibilityBuffer, GraphicsBuffer indirectArgsBuffer,
+            GraphicsBuffer inputIndexBuffer, GraphicsBuffer outputIndexBuffer,
+            UnsafeList<int4> visibleIndices, UnsafeList<int4> partialIndices)
         {
             NativeArray<int4> visibleIndexArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<int4>(visibleIndices.Ptr, visibleIndices.Length, Allocator.Invalid);
             NativeArray<int4> partialIndexArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<int4>(partialIndices.Ptr, partialIndices.Length, Allocator.Invalid);
@@ -67,34 +75,58 @@ namespace ZGame.Indirect
             NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref partialIndexArray, AtomicSafetyHandle.Create());
 #endif
 
-            _indexCount[0] = visibleIndexArray.Length;
-            _indexCount[1] = partialIndexArray.Length;
-            _bufferManager.IndexBuffer.SetData(visibleIndexArray, 0, 0, visibleIndexArray.Length);
-            _bufferManager.IndexBuffer.SetData(partialIndexArray, 0, visibleIndexArray.Length, partialIndexArray.Length);
+            inputIndexBuffer.SetCounterValue((uint)partialIndexArray.Length);
+            inputIndexBuffer.SetData(partialIndexArray, 0, 0, partialIndexArray.Length);
+            outputIndexBuffer.SetCounterValue((uint)visibleIndexArray.Length);
+            outputIndexBuffer.SetData(visibleIndexArray, 0, 0, visibleIndexArray.Length);
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.Release(NativeArrayUnsafeUtility.GetAtomicSafetyHandle(visibleIndexArray));
             AtomicSafetyHandle.Release(NativeArrayUnsafeUtility.GetAtomicSafetyHandle(partialIndexArray));
 #endif
 
-            cmd.SetComputeIntParams(_indirectPipelineCS, s_IndexCountID, _indexCount);
-
-            if (_indexCount[0] > 0)
+            // InstanceCull
             {
-                cmd.SetComputeBufferParam(_indirectPipelineCS, _indirectPipelineNoCullKernel, BufferManager.s_VisibilityBufferID, visibilityBuffer);
-                cmd.SetComputeBufferParam(_indirectPipelineCS, _indirectPipelineNoCullKernel, BufferManager.s_IndirectArgsBufferID, indirectArgsBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _instanceCullKernel, BufferManager.s_InputIndexBufferID, inputIndexBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _instanceCullKernel, BufferManager.s_OutputIndexBufferID, outputIndexBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _instanceCullKernel, BufferManager.s_InstanceDescriptorBufferID, _bufferManager.InstanceDescriptorBuffer);
 
-                int threadGroupsX = (_indexCount[0] + 63) / 64;
-                cmd.DispatchCompute(_indirectPipelineCS, _indirectPipelineNoCullKernel, threadGroupsX, 1, 1);
+                int threadGroupsX = (partialIndexArray.Length + 63) / 64;
+                threadGroupsX = math.max(threadGroupsX, 1);
+                cmd.DispatchCompute(_indirectPipelineCS, _instanceCullKernel, threadGroupsX, 1, 1);
             }
 
-            if (_indexCount[1] > 0)
+            // MeshletPopulate
             {
-                cmd.SetComputeBufferParam(_indirectPipelineCS, _indirectPipelineCullKernel, BufferManager.s_VisibilityBufferID, visibilityBuffer);
-                cmd.SetComputeBufferParam(_indirectPipelineCS, _indirectPipelineCullKernel, BufferManager.s_IndirectArgsBufferID, indirectArgsBuffer);
+                var tmpBuffer = inputIndexBuffer;
+                inputIndexBuffer = outputIndexBuffer;
+                outputIndexBuffer = tmpBuffer;
 
-                int threadGroupsX = (_indexCount[1] + 63) / 64;
-                cmd.DispatchCompute(_indirectPipelineCS, _indirectPipelineCullKernel, threadGroupsX, 1, 1);
+                cmd.SetBufferCounterValue(outputIndexBuffer, 0);
+
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletPopulateKernel, BufferManager.s_InputIndexBufferID, inputIndexBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletPopulateKernel, BufferManager.s_OutputIndexBufferID, outputIndexBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletPopulateKernel, BufferManager.s_InstanceDescriptorBufferID, _bufferManager.InstanceDescriptorBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletPopulateKernel, BufferManager.s_CmdDescriptorBufferID, _bufferManager.CmdDescriptorBuffer);
+
+                _dispatchHelper.AdjustThreadGroupX(cmd, inputIndexBuffer);
+                _dispatchHelper.Dispatch(cmd, _indirectPipelineCS, _meshletPopulateKernel);
+            }
+
+            // MeshletCull
+            {
+                var tmpBuffer = inputIndexBuffer;
+                inputIndexBuffer = outputIndexBuffer;
+                outputIndexBuffer = tmpBuffer;
+
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletCullKernel, BufferManager.s_InputIndexBufferID, inputIndexBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletCullKernel, BufferManager.s_MeshletDescriptorBufferID, _bufferManager.MeshletDescriptorBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletCullKernel, BufferManager.s_BatchDescriptorBufferID, _bufferManager.BatchDescriptorBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletCullKernel, BufferManager.s_VisibilityBufferID, visibilityBuffer);
+                cmd.SetComputeBufferParam(_indirectPipelineCS, _meshletCullKernel, BufferManager.s_IndirectArgsBufferID, indirectArgsBuffer);
+
+                _dispatchHelper.AdjustThreadGroupX(cmd, inputIndexBuffer);
+                _dispatchHelper.Dispatch(cmd, _indirectPipelineCS, _meshletCullKernel);
             }
         }
     }

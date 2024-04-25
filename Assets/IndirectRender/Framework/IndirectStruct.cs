@@ -12,20 +12,21 @@ namespace ZGame.Indirect
     {
         public int IndexCapacity;
         public int VertexCapacity;
-        public int UnitMeshTriangleCount;
+        public int MeshletTriangleCount;
 
         public int InstanceCapacity;
+        public int MeshletCapacity;
+        public int CmdCapacity;
         public int BatchCapacity;
 
         public QuadTreeSetting QuadTreeSetting;
 
-        public UInt32 MinInstanceCountPerCmd;
-        public UInt32 MaxInstanceCountPerCmd;
-        public UInt32 NumMaxInstanceCountPerCmd;
-
+        public UInt32 InstanceIndexMinCount;
+        public UInt32 InstanceIndexMaxCount;
+        public UInt32 MeshletIndexMinCount;
+        public UInt32 MeshletIndexMaxCount;
         public UInt32 InstanceDataMinSizeBytes;
         public UInt32 InstanceDataMaxSizeBytes;
-        public UInt32 InstanceDataNumMaxSizeBlocks;
     }
 
     public struct QuadTreeSetting
@@ -135,7 +136,7 @@ namespace ZGame.Indirect
         }
     }
 
-    public struct UnitMeshInfo
+    public struct MeshletInfo
     {
         public int IndexOffset;
         public int VertexOffset;
@@ -145,15 +146,17 @@ namespace ZGame.Indirect
 
     public struct MeshInfo
     {
-        public UnsafeList<UnitMeshInfo> UnitMeshInfos;
+        public UnsafeList<MeshletInfo> MeshletInfos;
+        public AABB AABB;
 
-        public static MeshInfo s_Invalid = new MeshInfo { UnitMeshInfos = new UnsafeList<UnitMeshInfo> { Ptr = null } };
-        public bool IsValid => UnitMeshInfos.IsCreated && UnitMeshInfos.Length > 0;
+        public int MeshletLength => MeshletInfos.Length;
+        public static MeshInfo s_Invalid = new MeshInfo { MeshletInfos = new UnsafeList<MeshletInfo> { Ptr = null } };
+        public bool IsValid => MeshletInfos.IsCreated && MeshletInfos.Length > 0;
 
         public void Dispose()
         {
-            if (UnitMeshInfos.IsCreated)
-                UnitMeshInfos.Dispose();
+            if (MeshletInfos.IsCreated)
+                MeshletInfos.Dispose();
         }
     }
 
@@ -256,30 +259,81 @@ namespace ZGame.Indirect
     public struct IndirectBatch
     {
         public int IndirectID;
-        public int ActualInstanceCount;
+        public int MeshletCount;
     }
 
-    public struct IndirectCmdInfo
+    public struct IndirectCmd
     {
-        public IndirectKey IndirectKey;
+        public UnsafeList<MeshInfo> MeshInfos;
+        public UnsafeList<IndirectKey> IndirectKeys;
         public int InstanceCount;
+        public Chunk InstanceIndexChunk;
         public Chunk InstanceDataChunk;
-        public UnsafeList<IndirectSubCmdInfo> SubCmds;
-    }
+        public UnsafeList<Chunk> MeshletIndexChunks;
 
-    public struct IndirectSubCmdInfo
-    {
-        public int StartInstanceIndex;
-        public Chunk InstanceIndicesChunk;
+        public int LodNum => MeshInfos.Length;
+        public int MaxLod => MeshInfos.Length - 1;
+
+        public void Dispose()
+        {
+            MeshInfos.Dispose();
+            IndirectKeys.Dispose();
+            MeshletIndexChunks.Dispose();
+        }
     }
 
     public struct InstanceDescriptor
     {
-        public float4 Center_IndirectID;
-        public float4 Extents_DataOffset;
-        public int4 UnitMeshInfo;
+        public float3 Center;
+        public int CmdID;
+
+        public float3 Extents;
+        public int Pad;
+
+        public const int c_SizeF4 = 2;
+        public const int c_Size = c_SizeF4 * 16;
+    }
+
+    public struct MeshletDescriptor
+    {
+        public float3 Center;
+        public int IndirectID;
+
+        public float3 Extents;
+        public int DataOffset;
+
+        public int IndexOffset;
+        public int VertexOffset;
+        public int NeedInverse;
+        public int Pad;
 
         public const int c_SizeF4 = 3;
+        public const int c_Size = c_SizeF4 * 16;
+    }
+
+    public struct CmdDescriptor
+    {
+        public int InstanceStartIndex;
+        public int InstanceCount;
+        public int MaxLod;
+        public int Pad;
+
+        public int4 MeshletStartIndices;
+
+        public int4 MeshletLengths;
+
+        public float4 LodParam;
+
+        public const int c_SizeF4 = 4;
+        public const int c_Size = c_SizeF4 * 16;
+    }
+
+    public struct BatchDescriptor
+    {
+        public int Offset;
+        public int3 Pad;
+
+        public const int c_SizeF4 = 1;
         public const int c_Size = c_SizeF4 * 16;
     }
 
@@ -294,5 +348,11 @@ namespace ZGame.Indirect
     {
         public int OffsetF4;
         public int SizeF4;
+    }
+
+    public struct OffsetSize
+    {
+        public int Offset;
+        public int Size;
     }
 }

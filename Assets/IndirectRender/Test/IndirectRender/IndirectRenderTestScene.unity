@@ -421,7 +421,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 995948514}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.088793784, y: 0.14318012, z: 0.012898961, w: 0.98562104}
+  m_LocalRotation: {x: 0.1344803, y: -0.14079715, z: -0.019307593, w: -0.9806725}
   m_LocalPosition: {x: 3.434359, y: 7.0012074, z: -60.114998}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -681,9 +681,10 @@ MonoBehaviour:
   Materials:
   - {fileID: 2100000, guid: 3ff1c6b2576b971458fc44e5ca79e4cb, type: 2}
   - {fileID: 2100000, guid: c81763479ba8d3f499495319047a0e00, type: 2}
-  MaxInstanceCount: 1000
+  MaxInstanceCount: 10000
   MaxHeight: 20
   IndirectPipelineCS: {fileID: 7200000, guid: 1b1336db012034a43a3de8e337b632d3, type: 3}
+  AdjustDispatchArgCS: {fileID: 7200000, guid: dead25538bc8ba04c9ee263e737f6774, type: 3}
   Seed: 1234
   Draw: 1
   QuadTreeCull: 1

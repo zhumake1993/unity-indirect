@@ -8,4 +8,5 @@ RWStructuredBuffer<uint> DispatchArgsBuffer;
 void AdjustDispatchArg (uint3 id : SV_DispatchThreadID)
 {
     DispatchArgsBuffer[0] = (DispatchArgsBuffer[0] + 63) / 64;
+    DispatchArgsBuffer[0] = DispatchArgsBuffer[0] > 0 ? DispatchArgsBuffer[0] : 1;
 }

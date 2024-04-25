@@ -8,38 +8,42 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.Profiling;
 using UnityEngine;
 
 namespace ZGame.Indirect
 {
     public struct AddItem
     {
-        public int UserID;
-        public IndirectKey IndirectKey;
-        public MeshInfo MeshInfo;
+        public int CmdID;
+        public UnsafeList<MeshInfo> MeshInfos;
+        public UnsafeList<IndirectKey> IndirectKeys;
+        public float4 LodParam;
         public bool NeedInverse;
         public UnsafeList<float4x4> Matrices;
         public UnsafeList<UnsafeList<float4>> Properties;
+
+        public int LodNum => MeshInfos.Length;
+        public int MaxLod => MeshInfos.Length - 1;
+        public MeshInfo MaxLodMeshInfo => MeshInfos[MaxLod];
     }
 
     public unsafe struct IndirectRenderUnmanaged
     {
         public IndirectRenderSetting Setting;
 
-        public IDGenerator UserIDGenerator;
-        public UnsafeHashMap<int, UnsafeList<int>> UserIdToCmdIDs;
-
         public IDGenerator CmdIDGenerator;
-        public UnsafeHashMap<int, IndirectCmdInfo> CmdMap;
+        public UnsafeHashMap<int, IndirectCmd> CmdMap;
         public IDGenerator IndirectIDGenerator;
         public UnsafeHashMap<IndirectKey, IndirectBatch> IndirectMap;
 
-        public BuddyAllocator InstanceIndicesAllocator;
+        public BuddyAllocator InstanceIndexAllocator;
         public BuddyAllocator InstanceDataAllocator;
+        public BuddyAllocator MeshletIndexAllocator;
 
         public NativeArray<InstanceDescriptor> InstanceDescriptorArray;
-        public NativeArray<int4> BatchDescriptorArray;
+        public NativeArray<MeshletDescriptor> MeshletDescriptorArray;
+        public NativeArray<CmdDescriptor> CmdDescriptorArray;
+        public NativeArray<BatchDescriptor> BatchDescriptorArray;
         public NativeArray<float4> InstanceDataArray;
         public NativeArray<GraphicsBuffer.IndirectDrawArgs> IndirectArgsArray;
 
@@ -48,31 +52,34 @@ namespace ZGame.Indirect
         public UnsafeList<QuadTreeAABBInfo>* QuadTreeAABBInfos;
         public UnsafeHashSet<int4>* QuadTreeIndexToRemoveSet;
         public UnsafeList<OffsetSizeF4> InstanceDataDirtySegments;
-        public UnsafeList<OffsetSizeF4> InstanceDescriptorDirtySegments;
+        public UnsafeList<OffsetSize> InstanceDescriptorDirtySegments;
+        public UnsafeList<OffsetSize> MeshletDescriptorDirtySegments;
 
         public SimpleSpinLock* Lock;
 
+        public int InstanceCount;
+        public int MeshletCount;
+        public int MaxCmdID;
         public int MaxIndirectID;
-        public int TotalActualInstanceCount;
 
         public void Init(IndirectRenderSetting setting)
         {
             Setting = setting;
 
-            UserIDGenerator.Init(Utility.c_UserIDInitialCapacity);
-            UserIdToCmdIDs = new UnsafeHashMap<int, UnsafeList<int>>(Utility.c_UserIDInitialCapacity, Allocator.Persistent);
-
-            CmdIDGenerator.Init(Utility.c_CmdIDInitialCapacity);
-            CmdMap = new UnsafeHashMap<int, IndirectCmdInfo>(Utility.c_CmdIDInitialCapacity, Allocator.Persistent);
+            CmdIDGenerator.Init(setting.CmdCapacity);
+            CmdMap = new UnsafeHashMap<int, IndirectCmd>(setting.CmdCapacity, Allocator.Persistent);
             IndirectIDGenerator.Init(setting.BatchCapacity);
             IndirectMap = new UnsafeHashMap<IndirectKey, IndirectBatch>(setting.BatchCapacity, Allocator.Persistent);
 
-            InstanceIndicesAllocator.Init(setting.MinInstanceCountPerCmd, setting.MaxInstanceCountPerCmd, setting.NumMaxInstanceCountPerCmd);
-            InstanceDataAllocator.Init(setting.InstanceDataMinSizeBytes, setting.InstanceDataMaxSizeBytes, setting.InstanceDataNumMaxSizeBlocks);
+            InstanceIndexAllocator.Init(setting.InstanceIndexMinCount, setting.InstanceIndexMaxCount, 1);
+            InstanceDataAllocator.Init(setting.InstanceDataMinSizeBytes, setting.InstanceDataMaxSizeBytes, 1);
+            MeshletIndexAllocator.Init(setting.MeshletIndexMinCount, setting.MeshletIndexMaxCount, 1);
 
             InstanceDescriptorArray = new NativeArray<InstanceDescriptor>(setting.InstanceCapacity, Allocator.Persistent);
-            BatchDescriptorArray = new NativeArray<int4>(setting.BatchCapacity, Allocator.Persistent);
-            InstanceDataArray = new NativeArray<float4>((int)(setting.InstanceDataMaxSizeBytes * setting.InstanceDataNumMaxSizeBlocks) / Utility.c_SizeOfFloat4, Allocator.Persistent);
+            MeshletDescriptorArray = new NativeArray<MeshletDescriptor>(setting.MeshletCapacity, Allocator.Persistent);
+            CmdDescriptorArray = new NativeArray<CmdDescriptor>(setting.CmdCapacity, Allocator.Persistent);
+            BatchDescriptorArray = new NativeArray<BatchDescriptor>(setting.BatchCapacity, Allocator.Persistent);
+            InstanceDataArray = new NativeArray<float4>((int)(setting.InstanceDataMaxSizeBytes) / Utility.c_SizeOfFloat4, Allocator.Persistent);
             IndirectArgsArray = new NativeArray<GraphicsBuffer.IndirectDrawArgs>(setting.BatchCapacity, Allocator.Persistent);
 
             AddCache = new NativeList<AddItem>(Allocator.Persistent);
@@ -82,43 +89,47 @@ namespace ZGame.Indirect
             QuadTreeIndexToRemoveSet = MemoryUtility.Malloc<UnsafeHashSet<int4>>(Allocator.Persistent);
             *QuadTreeIndexToRemoveSet = new UnsafeHashSet<int4>(16, Allocator.Persistent);
             InstanceDataDirtySegments = new UnsafeList<OffsetSizeF4>(16, Allocator.Persistent);
-            InstanceDescriptorDirtySegments = new UnsafeList<OffsetSizeF4>(16, Allocator.Persistent);
+            InstanceDescriptorDirtySegments = new UnsafeList<OffsetSize>(16, Allocator.Persistent);
+            MeshletDescriptorDirtySegments = new UnsafeList<OffsetSize>(16, Allocator.Persistent);
 
             Lock = MemoryUtility.Malloc<SimpleSpinLock>(Allocator.Persistent);
             Lock->Reset();
 
+            InstanceCount = 0;
+            MeshletCount = 0;
+            MaxCmdID = 0;
             MaxIndirectID = 0;
-            TotalActualInstanceCount = 0;
         }
 
         public void Dispose()
         {
-            UserIDGenerator.Dispose();
-            foreach (var cmdIDs in UserIdToCmdIDs)
-                cmdIDs.Value.Dispose();
-            UserIdToCmdIDs.Dispose();
-
             CmdIDGenerator.Dispose();
-            foreach (var cmd in CmdMap)
-                cmd.Value.SubCmds.Dispose();
+            foreach (var pair in CmdMap)
+                pair.Value.Dispose();
             CmdMap.Dispose();
             IndirectIDGenerator.Dispose();
             IndirectMap.Dispose();
 
-            InstanceIndicesAllocator.Dispose();
+            InstanceIndexAllocator.Dispose();
             InstanceDataAllocator.Dispose();
+            MeshletIndexAllocator.Dispose();
 
             InstanceDescriptorArray.Dispose();
+            MeshletDescriptorArray.Dispose();
+            CmdDescriptorArray.Dispose();
             BatchDescriptorArray.Dispose();
             InstanceDataArray.Dispose();
             IndirectArgsArray.Dispose();
 
             AddCache.Dispose();
             RemoveCache.Dispose();
+            QuadTreeAABBInfos->Dispose();
             MemoryUtility.Free(QuadTreeAABBInfos, Allocator.Persistent);
+            QuadTreeIndexToRemoveSet->Dispose();
             MemoryUtility.Free(QuadTreeIndexToRemoveSet, Allocator.Persistent);
             InstanceDataDirtySegments.Dispose();
             InstanceDescriptorDirtySegments.Dispose();
+            MeshletDescriptorDirtySegments.Dispose();
 
             MemoryUtility.Free(Lock, Allocator.Persistent);
         }
@@ -140,13 +151,45 @@ namespace ZGame.Indirect
 
             foreach (int id in Unmanaged->RemoveCache)
             {
-                if (Unmanaged->UserIdToCmdIDs.TryGetValue(id, out UnsafeList<int> cmdIDs))
+                if (Unmanaged->CmdMap.TryGetValue(id, out IndirectCmd indirectCmd))
                 {
-                    foreach (int cmdID in cmdIDs)
-                        RemoveCmd(cmdID);
-                    cmdIDs.Dispose();
+                    Unmanaged->CmdMap.Remove(id);
+                    Unmanaged->CmdIDGenerator.ReturnID(id);
 
-                    Unmanaged->UserIdToCmdIDs.Remove(id);
+                    int startIndex = (int)indirectCmd.InstanceIndexChunk.AddressOf();
+                    int instanceCount = indirectCmd.InstanceCount;
+                    for (int i = 0; i < instanceCount; i++)
+                        Unmanaged->QuadTreeIndexToRemoveSet->Add(new int4(startIndex + i, 0, 0, 0));
+
+                    for (int i = 0; i < indirectCmd.LodNum; ++i)
+                    {
+                        var meshInfo = indirectCmd.MeshInfos[i];
+                        var indirectKey = indirectCmd.IndirectKeys[i];
+
+                        IndirectBatch indirectBatch = Unmanaged->IndirectMap[indirectKey];
+                        indirectBatch.MeshletCount -= indirectCmd.InstanceCount * meshInfo.MeshletLength;
+
+                        if (indirectBatch.MeshletCount == 0)
+                        {
+                            Unmanaged->IndirectIDGenerator.ReturnID(indirectBatch.IndirectID);
+                            Unmanaged->IndirectMap.Remove(indirectKey);
+                        }
+                        else
+                        {
+                            Unmanaged->IndirectMap[indirectKey] = indirectBatch;
+                        }
+
+                        Unmanaged->MeshletCount -= indirectCmd.InstanceCount * meshInfo.MeshletLength;
+                    }
+
+                    Unmanaged->InstanceIndexAllocator.Free(indirectCmd.InstanceIndexChunk);
+                    Unmanaged->InstanceDataAllocator.Free(indirectCmd.InstanceDataChunk);
+                    foreach (var meshletIndexChunk in indirectCmd.MeshletIndexChunks)
+                        Unmanaged->MeshletIndexAllocator.Free(meshletIndexChunk);
+
+                    Unmanaged->InstanceCount -= indirectCmd.InstanceCount;
+
+                    indirectCmd.Dispose();
                 }
                 else
                 {
@@ -154,50 +197,6 @@ namespace ZGame.Indirect
                 }
             }
             Unmanaged->RemoveCache.Clear();
-        }
-
-        void RemoveCmd(int id)
-        {
-            if (Unmanaged->CmdMap.TryGetValue(id, out IndirectCmdInfo cmdInfo))
-            {
-                Unmanaged->CmdMap.Remove(id);
-                Unmanaged->CmdIDGenerator.ReturnID(id);
-
-                foreach (var subCmd in cmdInfo.SubCmds)
-                {
-                    int startInstanceIndex = subCmd.StartInstanceIndex;
-                    int instanceCount = cmdInfo.InstanceCount;
-
-                    for (int i = 0; i < instanceCount; i++)
-                        Unmanaged->QuadTreeIndexToRemoveSet->Add(new int4(startInstanceIndex + i, 0, 0, 0));
-                }
-
-                IndirectBatch indirectBatch = Unmanaged->IndirectMap[cmdInfo.IndirectKey];
-                indirectBatch.ActualInstanceCount -= cmdInfo.InstanceCount * cmdInfo.SubCmds.Length;
-
-                if (indirectBatch.ActualInstanceCount == 0)
-                {
-                    Unmanaged->IndirectIDGenerator.ReturnID(indirectBatch.IndirectID);
-                    Unmanaged->IndirectMap.Remove(cmdInfo.IndirectKey);
-                }
-                else
-                {
-                    Unmanaged->IndirectMap[cmdInfo.IndirectKey] = indirectBatch;
-                }
-
-                Unmanaged->TotalActualInstanceCount -= cmdInfo.InstanceCount * cmdInfo.SubCmds.Length;
-
-                Unmanaged->InstanceDataAllocator.Free(cmdInfo.InstanceDataChunk);
-
-                foreach (var subCmd in cmdInfo.SubCmds)
-                    Unmanaged->InstanceIndicesAllocator.Free(subCmd.InstanceIndicesChunk);
-
-                cmdInfo.SubCmds.Dispose();
-            }
-            else
-            {
-                Utility.LogError($"invalid cmd id={id}");
-            }
         }
     }
 
@@ -213,52 +212,62 @@ namespace ZGame.Indirect
         {
             foreach (var addItem in Unmanaged->AddCache)
             {
-                IndirectKey indirectKey = addItem.IndirectKey;
-
                 int instanceCount = addItem.Matrices.Length;
-                UnsafeList<UnitMeshInfo> unitMeshInfos = addItem.MeshInfo.UnitMeshInfos;
-                int unitMeshCount = unitMeshInfos.Length;
-                int actualInstanceCount = instanceCount * unitMeshCount;
+                Unmanaged->InstanceCount += instanceCount;
 
-                if (actualInstanceCount + Unmanaged->TotalActualInstanceCount > Unmanaged->Setting.InstanceCapacity)
                 {
-                    Utility.LogError($"instance capacity exceeded, instanceCount={instanceCount}, unitMeshCount={unitMeshCount}, totalInstanceCount={Unmanaged->TotalActualInstanceCount}, instanceCapacity={Unmanaged->Setting.InstanceCapacity}");
-                    return;
-                }
+                    int meshletCount = 0;
+                    foreach (var meshInfo in addItem.MeshInfos)
+                        meshletCount += instanceCount * meshInfo.MeshletLength;
 
-                if (!Unmanaged->IndirectMap.TryGetValue(indirectKey, out var indirectBatch))
-                {
-                    if (Unmanaged->IndirectMap.Count == Unmanaged->Setting.BatchCapacity)
+                    if (meshletCount + Unmanaged->MeshletCount > Unmanaged->Setting.MeshletCapacity)
                     {
-                        Utility.LogError($"batch capacity exceeded, batchCount={Unmanaged->IndirectMap.Count}, batchCapacity={Unmanaged->Setting.BatchCapacity}");
+                        Utility.LogError("meshlet capacity exceeded");
                         return;
                     }
-
-                    indirectBatch = new IndirectBatch()
-                    {
-                        IndirectID = Unmanaged->IndirectIDGenerator.GetID(),
-                        ActualInstanceCount = 0
-                    };
-
-                    Unmanaged->IndirectArgsArray[indirectBatch.IndirectID] = new GraphicsBuffer.IndirectDrawArgs()
-                    {
-                        vertexCountPerInstance = (uint)Unmanaged->Setting.UnitMeshTriangleCount * 3,
-                        instanceCount = 0,
-                        startVertex = 0,
-                        startInstance = 0,
-                    };
-                    Unmanaged->MaxIndirectID = math.max(Unmanaged->MaxIndirectID, indirectBatch.IndirectID);
                 }
 
-                indirectBatch.ActualInstanceCount += actualInstanceCount;
-                Unmanaged->IndirectMap[indirectKey] = indirectBatch;
+                for (int i = 0; i < addItem.LodNum; ++i)
+                {
+                    var meshInfo = addItem.MeshInfos[i];
+                    var indirectKey = addItem.IndirectKeys[i];
 
-                Unmanaged->TotalActualInstanceCount += actualInstanceCount;
+                    if (!Unmanaged->IndirectMap.TryGetValue(indirectKey, out var indirectBatch))
+                    {
+                        if (Unmanaged->IndirectMap.Count >= Unmanaged->Setting.BatchCapacity)
+                        {
+                            Utility.LogError("batch capacity exceeded");
+                            return;
+                        }
+
+                        indirectBatch = new IndirectBatch()
+                        {
+                            IndirectID = Unmanaged->IndirectIDGenerator.GetID(),
+                            MeshletCount = 0
+                        };
+                        Unmanaged->MaxIndirectID = math.max(Unmanaged->MaxIndirectID, indirectBatch.IndirectID);
+
+                        Unmanaged->IndirectArgsArray[indirectBatch.IndirectID] = new GraphicsBuffer.IndirectDrawArgs()
+                        {
+                            vertexCountPerInstance = (uint)Unmanaged->Setting.MeshletTriangleCount * 3,
+                            instanceCount = 0,
+                            startVertex = 0,
+                            startInstance = 0,
+                        };
+                    }
+
+                    int meshletCount = instanceCount * meshInfo.MeshletLength;
+                    indirectBatch.MeshletCount += meshletCount;
+
+                    Unmanaged->IndirectMap[indirectKey] = indirectBatch;
+                    Unmanaged->MeshletCount += meshletCount;
+                }
             }
 
             Unmanaged->QuadTreeAABBInfos->Clear();
             Unmanaged->InstanceDataDirtySegments.Clear();
             Unmanaged->InstanceDescriptorDirtySegments.Clear();
+            Unmanaged->MeshletDescriptorDirtySegments.Clear();
         }
     }
 
@@ -273,45 +282,75 @@ namespace ZGame.Indirect
         public void Execute(int index)
         {
             AddItem addItem = Unmanaged->AddCache[index];
+
             bool needInverse = addItem.NeedInverse;
             UnsafeList<float4x4> matrices = addItem.Matrices;
             UnsafeList<UnsafeList<float4>> properties = addItem.Properties;
 
             int instanceCount = addItem.Matrices.Length;
-            UnsafeList<UnitMeshInfo> unitMeshInfos = addItem.MeshInfo.UnitMeshInfos;
-            int unitMeshCount = unitMeshInfos.Length;
-            int actualInstanceCount = instanceCount * unitMeshCount;
 
-            int indirectID = Unmanaged->IndirectMap[addItem.IndirectKey].IndirectID;
-
-            int instanceSizeF4 = Utility.c_SizeOfPackedMatrixF4 + (needInverse ? Utility.c_SizeOfPackedMatrixF4 : 0) + properties.Length;
-            int instanceSize = instanceSizeF4 * Utility.c_SizeOfFloat4;
-            int maxInstanceCountPerCmd = math.min((int)Unmanaged->Setting.MaxInstanceCountPerCmd, (int)Unmanaged->Setting.InstanceDataMaxSizeBytes / instanceSize); ;
-            int indirectCmdInfoCount = (instanceCount + maxInstanceCountPerCmd - 1) / maxInstanceCountPerCmd;
-
-            UnsafeList<int> cmdIDs = new UnsafeList<int>(indirectCmdInfoCount, Allocator.Persistent);
-
-            int left = instanceCount;
-            int offset = 0;
-            while (left > 0)
+            Chunk instanceIndexChunk;
             {
-                int count = math.min(left, maxInstanceCountPerCmd);
-                left -= count;
-
-                // instance data
-
-                Chunk instanceDataChunk = Unmanaged->InstanceDataAllocator.Alloc((UInt32)(instanceSize * count));
-                if (instanceDataChunk == Chunk.s_InvalidChunk)
+                instanceIndexChunk = Unmanaged->InstanceIndexAllocator.Alloc((UInt32)(instanceCount));
+                if (instanceIndexChunk == Chunk.s_InvalidChunk)
                 {
-                    Utility.LogError($"instance data allocation failed, instanceDataAllocSize={instanceSize * count}");
+                    Utility.LogError($"instance index allocation failed, instanceCount={instanceCount}");
                     return;
                 }
 
-                int instanceDataOffsetF4 = (int)instanceDataChunk.AddressOf() / Utility.c_SizeOfFloat4;
+                int startIndex = (int)instanceIndexChunk.AddressOf();
+                AABB aabbLocal = addItem.MaxLodMeshInfo.AABB;
 
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < instanceCount; i++)
                 {
-                    float4x4 matrix = matrices[offset + i];
+                    AABB aabb = AABB.Transform(matrices[i], aabbLocal);
+
+                    Unmanaged->InstanceDescriptorArray[startIndex + i] = new InstanceDescriptor()
+                    {
+                        Center = aabb.Center,
+                        CmdID = addItem.CmdID,
+                        Extents = aabb.Extents,
+                        Pad = 0,
+                    };
+
+                    using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
+                    {
+                        Unmanaged->QuadTreeAABBInfos->Add(new QuadTreeAABBInfo
+                        {
+                            Index = startIndex + i,
+                            AABB = aabb,
+                            Coord = new int4(0, 0, 0, 0),
+                        });
+                    }
+                }
+
+                using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
+                {
+                    Unmanaged->InstanceDescriptorDirtySegments.Add(new OffsetSize
+                    {
+                        Offset = startIndex,
+                        Size = instanceCount
+                    });
+                }
+            }
+
+            Chunk instanceDataChunk;
+            int instanceDataOffsetF4;
+            int instanceSizeF4 = Utility.c_SizeOfPackedMatrixF4 + (needInverse ? Utility.c_SizeOfPackedMatrixF4 : 0) + properties.Length;
+            int instanceSize = instanceSizeF4 * Utility.c_SizeOfFloat4;
+            {
+                instanceDataChunk = Unmanaged->InstanceDataAllocator.Alloc((UInt32)(instanceSize * instanceCount));
+                if (instanceDataChunk == Chunk.s_InvalidChunk)
+                {
+                    Utility.LogError($"instance data allocation failed, instanceDataAllocSize={instanceSize * instanceCount}");
+                    return;
+                }
+
+                instanceDataOffsetF4 = (int)instanceDataChunk.AddressOf() / Utility.c_SizeOfFloat4;
+
+                for (int i = 0; i < instanceCount; i++)
+                {
+                    float4x4 matrix = matrices[i];
                     Unmanaged->InstanceDataArray[instanceDataOffsetF4 + i * instanceSizeF4 + 0] = new float4(matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0]);
                     Unmanaged->InstanceDataArray[instanceDataOffsetF4 + i * instanceSizeF4 + 1] = new float4(matrix[1][1], matrix[1][2], matrix[2][0], matrix[2][1]);
                     Unmanaged->InstanceDataArray[instanceDataOffsetF4 + i * instanceSizeF4 + 2] = new float4(matrix[2][2], matrix[3][0], matrix[3][1], matrix[3][2]);
@@ -335,94 +374,99 @@ namespace ZGame.Indirect
                     Unmanaged->InstanceDataDirtySegments.Add(new OffsetSizeF4
                     {
                         OffsetF4 = instanceDataOffsetF4,
-                        SizeF4 = instanceSizeF4 * count
+                        SizeF4 = instanceSizeF4 * instanceCount
                     });
                 }
+            }
 
-                IndirectCmdInfo indirectCmdInfo = new IndirectCmdInfo
+            UnsafeList<Chunk> meshletIndexChunks = new UnsafeList<Chunk>(addItem.LodNum, Allocator.Persistent);
+            UnsafeList<int2> meshletIndexInfos = new UnsafeList<int2>(Utility.c_MaxLodNum, Allocator.Temp);
+            for (int iLod = 0; iLod < addItem.LodNum; ++iLod)
+            {
+                var meshInfo = addItem.MeshInfos[iLod];
+                var indirectKey = addItem.IndirectKeys[iLod];
+
+                int indirectID = Unmanaged->IndirectMap[indirectKey].IndirectID;
+                int meshletCount = instanceCount * meshInfo.MeshletLength;
+
+                Chunk meshletIndexChunk = Unmanaged->MeshletIndexAllocator.Alloc((UInt32)meshletCount);
+                if (meshletIndexChunk == Chunk.s_InvalidChunk)
                 {
-                    IndirectKey = addItem.IndirectKey,
-                    InstanceCount = count,
-                    InstanceDataChunk = instanceDataChunk,
-                    SubCmds = new UnsafeList<IndirectSubCmdInfo>(unitMeshCount, Allocator.Persistent)
-                };
-                indirectCmdInfo.SubCmds.Length = unitMeshCount;
-
-                // descriptor
-
-                for (int iUnitMesh = 0; iUnitMesh < unitMeshCount; ++iUnitMesh)
-                {
-                    UnitMeshInfo unitMeshInfo = unitMeshInfos[iUnitMesh];
-                    AABB aabbLocal = unitMeshInfo.AABB;
-
-                    int instanceIndicesAllocSize = math.max((int)Unmanaged->Setting.MinInstanceCountPerCmd, count);
-                    Chunk instanceIndicesChunk = Unmanaged->InstanceIndicesAllocator.Alloc((UInt32)(instanceIndicesAllocSize));
-                    if (instanceIndicesChunk == Chunk.s_InvalidChunk)
-                    {
-                        Utility.LogError($"instance indices allocation failed, instanceIndicesAllocSize={instanceIndicesAllocSize}");
-                        return;
-                    }
-
-                    int startInstanceIndex = (int)instanceIndicesChunk.AddressOf();
-
-                    for (int i = 0; i < count; i++)
-                    {
-                        AABB aabb = AABB.Transform(matrices[offset + i], aabbLocal);
-
-                        using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
-                        {
-                            Unmanaged->QuadTreeAABBInfos->Add(new QuadTreeAABBInfo
-                            {
-                                Index = startInstanceIndex + i,
-                                AABB = aabb,
-                                Coord = new int4(0, 0, 0, 0),
-                            });
-                        }
-
-                        InstanceDescriptor instanceDescriptor = new InstanceDescriptor()
-                        {
-                            Center_IndirectID = new float4(aabb.Center, indirectID),
-                            Extents_DataOffset = new float4(aabb.Extents, (instanceDataOffsetF4 + i * instanceSizeF4) * Utility.c_SizeOfFloat4),
-                            UnitMeshInfo = new int4(unitMeshInfo.IndexOffset, unitMeshInfo.VertexOffset, needInverse ? 1 : 0, 0),
-                        };
-
-                        Unmanaged->InstanceDescriptorArray[startInstanceIndex + i] = instanceDescriptor;
-                    }
-
-                    using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
-                    {
-                        Unmanaged->InstanceDescriptorDirtySegments.Add(new OffsetSizeF4
-                        {
-                            OffsetF4 = startInstanceIndex,
-                            SizeF4 = count
-                        });
-                    }
-
-                    IndirectSubCmdInfo indirectSubCmdInfo = new IndirectSubCmdInfo
-                    {
-                        StartInstanceIndex = startInstanceIndex,
-                        InstanceIndicesChunk = instanceIndicesChunk
-                    };
-
-                    indirectCmdInfo.SubCmds[iUnitMesh] = indirectSubCmdInfo;
+                    Utility.LogError($"meshlet index allocation failed, meshletCount={meshletCount}");
+                    return;
                 }
 
-                int cmdID;
+                int startIndex = (int)meshletIndexChunk.AddressOf();
+
+                for (int i = 0; i < meshletCount; i++)
+                {
+                    int instanceIndex = i % instanceCount;
+                    int meshletIndex = i / instanceCount;
+
+                    MeshletInfo meshletInfo = meshInfo.MeshletInfos[meshletIndex];
+                    AABB aabb = AABB.Transform(matrices[instanceIndex], meshletInfo.AABB);
+
+                    Unmanaged->MeshletDescriptorArray[startIndex + i] = new MeshletDescriptor()
+                    {
+                        Center = aabb.Center,
+                        IndirectID = indirectID,
+                        Extents = aabb.Extents,
+                        DataOffset = (instanceDataOffsetF4 + instanceIndex * instanceSizeF4) * Utility.c_SizeOfFloat4,
+                        IndexOffset = meshletInfo.IndexOffset,
+                        VertexOffset = meshletInfo.VertexOffset,
+                        NeedInverse = needInverse ? 1 : 0,
+                        Pad = 0,
+                    };
+                }
 
                 using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
                 {
-                    cmdID = Unmanaged->CmdIDGenerator.GetID();
-                    Unmanaged->CmdMap.Add(cmdID, indirectCmdInfo);
+                    Unmanaged->MeshletDescriptorDirtySegments.Add(new OffsetSize
+                    {
+                        Offset = startIndex,
+                        Size = meshletCount
+                    });
                 }
 
-                cmdIDs.Add(cmdID);
-
-                offset += count;
+                meshletIndexChunks.Add(meshletIndexChunk);
+                meshletIndexInfos.Add(new int2(startIndex, meshInfo.MeshletLength));
             }
+
+            for (int i = addItem.LodNum; i < Utility.c_MaxLodNum; ++i)
+                meshletIndexInfos.Add(new int2(0, 0));
+
+            UnsafeList<MeshInfo> meshInfos = new UnsafeList<MeshInfo>(addItem.MeshInfos.Length, Allocator.Persistent);
+            for (int i = 0; i < addItem.MeshInfos.Length; ++i)
+                meshInfos.Add(addItem.MeshInfos[i]);
+
+            UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(addItem.IndirectKeys.Length, Allocator.Persistent);
+            for (int i = 0; i < addItem.IndirectKeys.Length; ++i)
+                indirectKeys.Add(addItem.IndirectKeys[i]);
+
+            IndirectCmd indirectCmd = new IndirectCmd
+            {
+                MeshInfos = meshInfos,
+                IndirectKeys = indirectKeys,
+                InstanceCount = instanceCount,
+                InstanceIndexChunk = instanceIndexChunk,
+                InstanceDataChunk = instanceDataChunk,
+                MeshletIndexChunks = meshletIndexChunks,
+            };
+
+            Unmanaged->CmdDescriptorArray[addItem.CmdID] = new CmdDescriptor()
+            {
+                InstanceStartIndex = (int)instanceIndexChunk.AddressOf(),
+                InstanceCount = instanceCount,
+                MaxLod = addItem.MaxLod,
+                Pad = 0,
+                MeshletStartIndices = new int4(meshletIndexInfos[0].x, meshletIndexInfos[1].x, meshletIndexInfos[2].x, meshletIndexInfos[3].x),
+                MeshletLengths = new int4(meshletIndexInfos[0].y, meshletIndexInfos[1].y, meshletIndexInfos[2].y, meshletIndexInfos[3].y),
+                LodParam = addItem.LodParam,
+            };
 
             using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
             {
-                Unmanaged->UserIdToCmdIDs.Add(addItem.UserID, cmdIDs);
+                Unmanaged->CmdMap.Add(addItem.CmdID, indirectCmd);
             }
         }
     }
@@ -439,13 +483,12 @@ namespace ZGame.Indirect
         {
             foreach (var addItem in Unmanaged->AddCache)
             {
-                UnsafeList<float4x4> matrices = addItem.Matrices;
-                UnsafeList<UnsafeList<float4>> properties = addItem.Properties;
-
-                matrices.Dispose();
-                for (int i = 0; i < properties.Length; ++i)
-                    properties[i].Dispose();
-                properties.Dispose();
+                addItem.MeshInfos.Dispose();
+                addItem.IndirectKeys.Dispose();
+                addItem.Matrices.Dispose();
+                for (int i = 0; i < addItem.Properties.Length; ++i)
+                    addItem.Properties[i].Dispose();
+                addItem.Properties.Dispose();
             }
             Unmanaged->AddCache.Clear();
         }
@@ -464,12 +507,15 @@ namespace ZGame.Indirect
             int instanceOffset = 0;
             foreach (var pair in Unmanaged->IndirectMap)
             {
-                IndirectKey indirectKey = pair.Key;
                 IndirectBatch indirectBatch = pair.Value;
                 int indirectID = indirectBatch.IndirectID;
 
-                Unmanaged->BatchDescriptorArray[indirectID] = new int4(instanceOffset, 0, 0, 0);
-                instanceOffset += indirectBatch.ActualInstanceCount;
+                Unmanaged->BatchDescriptorArray[indirectID] = new BatchDescriptor
+                {
+                    Offset = instanceOffset,
+                    Pad = new int3(0, 0, 0),
+                };
+                instanceOffset += indirectBatch.MeshletCount;
             }
         }
     }

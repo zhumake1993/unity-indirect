@@ -1,11 +1,14 @@
 #pragma enable_d3d11_debug_symbols
 
-#pragma kernel IndirectPipelineNoCull
-#pragma kernel IndirectPipelineCull
+#pragma kernel InstanceCull
+#pragma kernel MeshletPopulate
+#pragma kernel MeshletCull
 
 #pragma multi_compile_local _ _DISABLE_FRUSTUM_CULL
 
-#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/InstanceDescriptor.hlsl"
+#define kMaxLodNum 4
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/IndirectDescriptor.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Indirect/FrustumCulling.hlsl"
 
 struct IndirectArgs
@@ -16,69 +19,144 @@ struct IndirectArgs
     uint startInstance;
 };
 
-uint4 _IndexCount;
+int _EnableLod;
+float3 _CameraPosition;
+float4x4 _CameraMatrix;
 
-StructuredBuffer<int4> IndexBuffer;
-
-StructuredBuffer<int4> BatchDescriptorBuffer;
+StructuredBuffer<InstanceDescriptor> InstanceDescriptorBuffer;
+StructuredBuffer<MeshletDescriptor> MeshletDescriptorBuffer;
+StructuredBuffer<CmdDescriptor> CmdDescriptorBuffer;
+StructuredBuffer<BatchDescriptor> BatchDescriptorBuffer;
 
 RWStructuredBuffer<int4> VisibilityBuffer;
-
 RWStructuredBuffer<IndirectArgs> IndirectArgsBuffer;
 
+RWStructuredBuffer<int4> InputIndexBuffer;
+RWStructuredBuffer<int4> OutputIndexBuffer;
+
 [numthreads(64,1,1)]
-void IndirectPipelineNoCull (uint3 id : SV_DispatchThreadID)
+void InstanceCull (uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _IndexCount.x)
+    int readIndex = InputIndexBuffer.DecrementCounter();
+    
+    if (readIndex < 0)
         return;
 
-    int index = IndexBuffer[id.x].x;
-    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[index];
+    int instanceIndex = InputIndexBuffer[readIndex].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
     
-    int indirectID = instanceDescriptor.center_indirectID.w;
- 
-    int visibleCount = 0;
-    InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
+    AABB aabb;
+    aabb.center = instanceDescriptor.center;
+    aabb.extent = instanceDescriptor.extents;
 
-    int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-    VisibilityBuffer[instanceOffset + visibleCount].x = index;
+    uint cullResult = FrustumCullNoPartial(aabb);
+
+    #if _DISABLE_FRUSTUM_CULL
+    cullResult = kCullingResultIn;
+    #endif
+
+    if (cullResult != kCullingResultOut)
+    {
+        int writeIndex = OutputIndexBuffer.IncrementCounter();
+        OutputIndexBuffer[writeIndex] = int4(instanceIndex, 0, 0, 0);
+    }
+}
+
+float ComputeBoundsScreenRadiusSquared(float3 boundOrigin, float boundsRadius)
+{
+    float distSqr = distance(boundOrigin, _CameraPosition.xyz);
+    distSqr *= distSqr;
+    float screenMultiple = max(0.5f * _CameraMatrix[0][0], 0.5f * _CameraMatrix[1][1]);
+
+    return dot(screenMultiple * boundsRadius, screenMultiple * boundsRadius) / max(1.0f, distSqr);
+}
+
+int SelectLodsByScreenSize(float screenRadiusSquared, float4 lodParam)
+{
+    int i = 0;
+    for (; i < kMaxLodNum; i++)
+    {
+        if (screenRadiusSquared > lodParam[i])
+        {
+            return i;
+        }
+    }
+    
+    return i-1;
+}
+
+int CalculateLod(AABB bound, float4 lodParam, int maxLod)
+{
+    float boundRadius = length(bound.extent);
+    float screenSize = ComputeBoundsScreenRadiusSquared(bound.center, boundRadius * 2.0f);
+    int lod = SelectLodsByScreenSize(screenSize, lodParam);
+    return min(lod, maxLod);
 }
 
 [numthreads(64,1,1)]
-void IndirectPipelineCull (uint3 id : SV_DispatchThreadID)
+void MeshletPopulate (uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= _IndexCount.y)
-        return;
-
-    int index = IndexBuffer[_IndexCount.x + id.x].x;
-    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[index];
-
-    #if _DISABLE_FRUSTUM_CULL
-
-        int indirectID = instanceDescriptor.center_indirectID.w;
-     
-        int visibleCount = 0;
-        InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
-
-        int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-        VisibilityBuffer[instanceOffset + visibleCount].x = index;
-
-        return;
+    int readIndex = InputIndexBuffer.DecrementCounter();
     
-    #endif
+    if (readIndex < 0)
+        return;
+
+    int instanceIndex = InputIndexBuffer[readIndex].x;
+    InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+
+    int cmdID = instanceDescriptor.cmdID;
+    CmdDescriptor cmdDescriptor = CmdDescriptorBuffer[cmdID];
 
     AABB aabb;
-    aabb.center = instanceDescriptor.center_indirectID.xyz;
-    aabb.extent = instanceDescriptor.extents_dataOffset.xyz;
+    aabb.center = instanceDescriptor.center;
+    aabb.extent = instanceDescriptor.extents;
 
-    if (FrustumCullNoPartial(aabb) != kCullingResultOut)
+    int lod = 0;
+    if (_EnableLod==1)
+        lod = CalculateLod(aabb, cmdDescriptor.lodParam, cmdDescriptor.maxLod);
+
+    int index = instanceIndex - cmdDescriptor.instanceStartIndex;
+    int instanceCount = cmdDescriptor.instanceCount;
+    int meshletStartIndex = cmdDescriptor.meshletStartIndices[lod];
+    int meshletLength = cmdDescriptor.meshletLengths[lod];
+
+    int writeIndex;
+    for (int i = 0; i < meshletLength; i++)
     {
-        int indirectID = instanceDescriptor.center_indirectID.w;
+        writeIndex = OutputIndexBuffer.IncrementCounter();
+        OutputIndexBuffer[writeIndex] = int4(meshletStartIndex + i * instanceCount + index, 0, 0, 0);
+    }
+}
+
+[numthreads(64,1,1)]
+void MeshletCull (uint3 id : SV_DispatchThreadID)
+{
+    int readIndex = InputIndexBuffer.DecrementCounter();
+    
+    if (readIndex < 0)
+        return;
+
+    int meshletIndex = InputIndexBuffer[readIndex].x;
+    MeshletDescriptor meshletDescriptor = MeshletDescriptorBuffer[meshletIndex];
+
+    AABB aabb;
+    aabb.center = meshletDescriptor.center;
+    aabb.extent = meshletDescriptor.extents;
+
+    uint cullResult = FrustumCullNoPartial(aabb);
+
+    #if _DISABLE_FRUSTUM_CULL
+    cullResult = kCullingResultIn;
+    #endif
+
+    if (cullResult != kCullingResultOut)
+    {
+        int indirectID = meshletDescriptor.indirectID;
  
         int visibleCount = 0;
         InterlockedAdd(IndirectArgsBuffer[indirectID].instanceCount, 1, visibleCount);
 
-        int instanceOffset = BatchDescriptorBuffer[indirectID].x;
-        VisibilityBuffer[instanceOffset + visibleCount].x = index;
+        int instanceOffset = BatchDescriptorBuffer[indirectID].offset;
+        VisibilityBuffer[instanceOffset + visibleCount].x = meshletIndex;
     }
 }

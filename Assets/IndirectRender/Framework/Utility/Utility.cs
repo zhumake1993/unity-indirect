@@ -22,18 +22,9 @@ namespace ZGame.Indirect
         public const int c_SizeOfPackedMatrixF4 = 3;
         public const int c_SizeOfMatrixF4 = 4;
 
-        public const int c_MeshIDInitialCapacity = 256;
-        public const int c_MaterialIDInitialCapacity = 256;
-        public const int c_UserIDInitialCapacity = 16 * 1024;
-        public const int c_CmdIDInitialCapacity = 16 * 1024;
+        public const int c_MaxLodNum = 4;
 
         public const int c_MaxPackedPlaneCount = 16; // must be equal to the counterparts in FrustumCulling.hlsl
-
-        //public const int c_QuadTreeLod0NodeSize = 64;
-        //public const int c_QuadTreeSubNodeSize = 8;
-        //public const int c_QuadTreeSubNodeRange = 8;
-        //public const int c_QuadTreeMaxLodNum = 8;
-        //public const int c_QuadTreeNodeHeight = 16;
 
         public static int[] s_IndirectPeopertyIDs = new int[4]
         {   Shader.PropertyToID("_IndirectPeoperty0"),

@@ -22,7 +22,6 @@ namespace ZGame.Indirect
             public UnsafeHashMap<int, int4> IndexToCoord;
 
             public bool QuadTreeCull;
-            public bool UseSingleJob;
 
             public void Init(IndirectRenderSetting setting)
             {
@@ -33,7 +32,6 @@ namespace ZGame.Indirect
                 IndexToCoord = new UnsafeHashMap<int, int4>(1024, Allocator.Persistent);
 
                 QuadTreeCull = true;
-                UseSingleJob = true;
             }
 
             public void Dispose()
@@ -303,206 +301,89 @@ namespace ZGame.Indirect
         }
 
         static readonly ProfilerMarker s_cullMarker = new ProfilerMarker("QuadTree.Cull");
-        public void Cull(UnsafeList<PlanePacket4> packedPlanes, out UnsafeList<int4> visibleIndices, out UnsafeList<int4> partialIndices)
+        public JobHandle Cull(UnsafeList<PlanePacket4> packedPlanes, UnsafeList<int4>* visibleIndices, UnsafeList<int4>* partialIndices)
         {
-            if (!_unmanaged->QuadTreeCull)
-            {
-                visibleIndices = new UnsafeList<int4>(1024, Allocator.Temp);
-                partialIndices = new UnsafeList<int4>(1024, Allocator.Temp);
-
-                foreach (var pair in _unmanaged->Map)
-                {
-                    UnsafeList<int4> indices = pair.Value;
-                    for (int i = 0; i < indices.Length; ++i)
-                        partialIndices.Add(indices[i]);
-                }
-
-                for (int i = 0; i < _unmanaged->Outsiders.Length; ++i)
-                    partialIndices.Add(_unmanaged->Outsiders[i]);
-
-                return;
-            }
-
             using (s_cullMarker.Auto())
             {
-                CullQuadTree(packedPlanes, out UnsafeList<int4> visibleCoords, out UnsafeList<int4> partialCoords);
+                *visibleIndices = new UnsafeList<int4>(1024, Allocator.TempJob);
+                *partialIndices = new UnsafeList<int4>(1024, Allocator.TempJob);
 
-                visibleIndices = new UnsafeList<int4>(1024, Allocator.Temp);
-                partialIndices = new UnsafeList<int4>(1024, Allocator.Temp);
-
-                UnsafeList<int4> pingVisibleCoords = visibleCoords;
-                UnsafeList<int4> pongVisibleCoords = new UnsafeList<int4>(visibleCoords.Length, Allocator.TempJob);
-
-                while (pingVisibleCoords.Length > 0)
+                if (!_unmanaged->QuadTreeCull)
                 {
-                    for (int i = 0; i < pingVisibleCoords.Length; ++i)
+                    foreach (var pair in _unmanaged->Map)
                     {
-                        int4 coord = pingVisibleCoords[i];
-
-                        if (_unmanaged->Map.TryGetValue(coord, out var list))
-                        {
-                            AddIndices(ref visibleIndices, list);
-                        }
-
-                        if (coord.w > 0)
-                        {
-                            pongVisibleCoords.Add(new int4(coord.x * 2, 0, coord.z * 2, coord.w - 1));
-                            pongVisibleCoords.Add(new int4(coord.x * 2 + 1, 0, coord.z * 2, coord.w - 1));
-                            pongVisibleCoords.Add(new int4(coord.x * 2, 0, coord.z * 2 + 1, coord.w - 1));
-                            pongVisibleCoords.Add(new int4(coord.x * 2 + 1, 0, coord.z * 2 + 1, coord.w - 1));
-                        }
+                        UnsafeList<int4> indices = pair.Value;
+                        for (int i = 0; i < indices.Length; ++i)
+                            partialIndices->Add(indices[i]);
                     }
 
-                    pingVisibleCoords.Clear();
+                    for (int i = 0; i < _unmanaged->Outsiders.Length; ++i)
+                        partialIndices->Add(_unmanaged->Outsiders[i]);
 
-                    var temp = pingVisibleCoords;
-                    pingVisibleCoords = pongVisibleCoords;
-                    pongVisibleCoords = temp;
-                }
-
-                pingVisibleCoords.Dispose();
-                pongVisibleCoords.Dispose();
-
-                for (int i = 0; i < partialCoords.Length; ++i)
-                {
-                    if (_unmanaged->Map.TryGetValue(partialCoords[i], out var list))
-                    {
-                        AddIndices(ref partialIndices, list);
-                    }
-                }
-
-                AddIndices(ref partialIndices, _unmanaged->Outsiders);
-
-                partialCoords.Dispose();
-            }
-        }
-
-        void AddIndices(ref UnsafeList<int4> dst, UnsafeList<int4> src)
-        {
-            dst.Length = dst.Length + src.Length;
-            UnsafeUtility.MemCpy(dst.Ptr + dst.Length - src.Length, src.Ptr, src.Length * UnsafeUtility.SizeOf<int4>());
-        }
-
-        static readonly ProfilerMarker s_cullQuadTreeMarker = new ProfilerMarker("QuadTree.CullQuadTree");
-        void CullQuadTree(UnsafeList<PlanePacket4> packedPlanes, out UnsafeList<int4> visibleCoords, out UnsafeList<int4> partialCoords)
-        {
-            using (s_cullQuadTreeMarker.Auto())
-            {
-                int maxLodNodeCount = _unmanaged->Setting.MaxLodRange.x * _unmanaged->Setting.MaxLodRange.z;
-
-                UnsafeList<int2> pingCoords = new UnsafeList<int2>(maxLodNodeCount, Allocator.TempJob);
-                UnsafeList<int2> pongCoords = new UnsafeList<int2>(maxLodNodeCount * 4, Allocator.TempJob);
-                visibleCoords = new UnsafeList<int4>(maxLodNodeCount, Allocator.TempJob);
-                partialCoords = new UnsafeList<int4>(maxLodNodeCount, Allocator.TempJob);
-
-                for (int x = 0; x < _unmanaged->Setting.MaxLodRange.x; ++x)
-                {
-                    for (int z = 0; z < _unmanaged->Setting.MaxLodRange.z; ++z)
-                    {
-                        pingCoords.Add(new int2(x, z));
-                    }
-                }
-
-                JobHandle jobHandle = default;
-
-                UnsafeRef<UnsafeList<int2>> pingCoordsRef = new UnsafeRef<UnsafeList<int2>>(pingCoords, Allocator.TempJob);
-                UnsafeRef<UnsafeList<int2>> pongCoordsRef = new UnsafeRef<UnsafeList<int2>>(pongCoords, Allocator.TempJob);
-                UnsafeRef<UnsafeList<int4>> visibleCoordsRef = new UnsafeRef<UnsafeList<int4>>(visibleCoords, Allocator.TempJob);
-                UnsafeRef<UnsafeList<int4>> partialCoordsRef = new UnsafeRef<UnsafeList<int4>>(partialCoords, Allocator.TempJob);
-
-                if (_unmanaged->UseSingleJob)
-                {
-                    var cullQuadTreeSingleJob = new CullQuadTreeSingleJob
-                    {
-                        PackedPlanes = packedPlanes,
-                        PingCoordsRef = pingCoordsRef,
-                        PongCoordsRef = pongCoordsRef,
-                        VisibleCoordsRef = visibleCoordsRef,
-                        PartialCoordsRef = partialCoordsRef,
-                        Setting = _unmanaged->Setting
-                    };
-                    jobHandle = cullQuadTreeSingleJob.Schedule();
+                    return new JobHandle();
                 }
                 else
                 {
-                    var resizeJob = new ResizeJob
+                    UnsafeList<int4>* visibleCoords = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+                    UnsafeList<int4>* partialCoords = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+
+                    JobHandle jobHandle = CullQuadTree(packedPlanes, visibleCoords, partialCoords);
+
+                    jobHandle = new CollectIndicesJob
                     {
-                        PingCoordsRef = pingCoordsRef,
-                        PongCoordsRef = pongCoordsRef,
-                        VisibleCoordsRef = visibleCoordsRef,
-                        PartialCoordsRef = partialCoordsRef,
-                    };
+                        VisibleCoords = visibleCoords,
+                        PartialCoords = partialCoords,
+                        VisibleIndices = visibleIndices,
+                        PartialIndices = partialIndices,
+                        Unmanaged = _unmanaged
+                    }.Schedule(jobHandle);
 
-                    var cullQuadTreeJob = new CullQuadTreeJob
-                    {
-                        PackedPlanes = packedPlanes,
-                        PingCoordsRef = pingCoordsRef,
-                        PongCoordsRef = pongCoordsRef,
-                        VisibleCoordsRef = visibleCoordsRef,
-                        PartialCoordsRef = partialCoordsRef,
-                        Lod = 0,
-                        LodNodeSize = 0,
-                        Setting = _unmanaged->Setting
-                    };
-
-                    var switchPingPongJob = new ClearAndSwitchJob
-                    {
-                        PingCoordsRef = pingCoordsRef,
-                        PongCoordsRef = pongCoordsRef,
-                    };
-
-                    for (int lod = _unmanaged->Setting.MaxLod; lod >= 0; --lod)
-                    {
-                        cullQuadTreeJob.Lod = lod;
-                        cullQuadTreeJob.LodNodeSize = math.pow(2, lod) * _unmanaged->Setting.Lod0NodeSize;
-
-                        jobHandle = resizeJob.Schedule(jobHandle);
-                        jobHandle = cullQuadTreeJob.Schedule((int*)((byte*)pingCoordsRef.GetUnsafePtr() + sizeof(void*)), 16, jobHandle);
-
-                        if (lod > 0)
-                        {
-                            jobHandle = switchPingPongJob.Schedule(jobHandle);
-                        }
-                    }
+                    return jobHandle;
                 }
-
-                jobHandle.Complete();
-
-                pingCoords = pingCoordsRef.RefValue;
-                pongCoords = pongCoordsRef.RefValue;
-                visibleCoords = visibleCoordsRef.RefValue;
-                partialCoords = partialCoordsRef.RefValue;
-
-                pingCoordsRef.Dispose(jobHandle);
-                pongCoordsRef.Dispose(jobHandle);
-                visibleCoordsRef.Dispose(jobHandle);
-                partialCoordsRef.Dispose(jobHandle);
-
-                pingCoords.Dispose();
-                pongCoords.Dispose();
             }
+        }
+
+        JobHandle CullQuadTree(UnsafeList<PlanePacket4> packedPlanes, UnsafeList<int4>* visibleCoords, UnsafeList<int4>* partialCoords)
+        {
+            *visibleCoords = new UnsafeList<int4>(256, Allocator.TempJob);
+            *partialCoords = new UnsafeList<int4>(256, Allocator.TempJob);
+
+            return new CullQuadTreeJob
+            {
+                PackedPlanes = packedPlanes,
+                VisibleCoords = visibleCoords,
+                PartialCoords = partialCoords,
+                Setting = _unmanaged->Setting
+            }.Schedule();
         }
 
 #if ENABLE_BURST
         [BurstCompile(CompileSynchronously = true)]
 #endif
-        public unsafe struct CullQuadTreeSingleJob : IJob
+        public unsafe struct CullQuadTreeJob : IJob
         {
             [ReadOnly]
             public UnsafeList<PlanePacket4> PackedPlanes;
-            public UnsafeRef<UnsafeList<int2>> PingCoordsRef;
-            public UnsafeRef<UnsafeList<int2>> PongCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> VisibleCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> PartialCoordsRef;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* VisibleCoords;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* PartialCoords;
             [ReadOnly]
             public QuadTreeSetting Setting;
 
             public void Execute()
             {
-                ref UnsafeList<int2> pingCoords = ref PingCoordsRef.RefValue;
-                ref UnsafeList<int2> pongCoords = ref PongCoordsRef.RefValue;
-                ref UnsafeList<int4> visibleCoords = ref VisibleCoordsRef.RefValue;
-                ref UnsafeList<int4> partialCoords = ref PartialCoordsRef.RefValue;
+                int maxLodNodeCount = Setting.MaxLodRange.x * Setting.MaxLodRange.z;
+
+                UnsafeList<int2> pingCoords = new UnsafeList<int2>(maxLodNodeCount, Allocator.TempJob);
+                UnsafeList<int2> pongCoords = new UnsafeList<int2>(maxLodNodeCount * 4, Allocator.TempJob);
+
+                for (int x = 0; x < Setting.MaxLodRange.x; ++x)
+                    for (int z = 0; z < Setting.MaxLodRange.z; ++z)
+                        pingCoords.Add(new int2(x, z));
+
+                ref UnsafeList<int4> visibleCoords = ref *VisibleCoords;
+                ref UnsafeList<int4> partialCoords = ref *PartialCoords;
 
                 for (int lod = Setting.MaxLod; lod >= 0; --lod)
                 {
@@ -546,81 +427,86 @@ namespace ZGame.Indirect
                         pongCoords = temp;
                     }
                 }
+
+                pingCoords.Dispose();
+                pongCoords.Dispose();
             }
         }
 
 #if ENABLE_BURST
         [BurstCompile(CompileSynchronously = true)]
 #endif
-        public unsafe struct ResizeJob : IJob
+        public unsafe struct CollectIndicesJob : IJob
         {
-            public UnsafeRef<UnsafeList<int2>> PingCoordsRef;
-            public UnsafeRef<UnsafeList<int2>> PongCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> VisibleCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> PartialCoordsRef;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* VisibleCoords;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* PartialCoords;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* VisibleIndices;
+            [NativeDisableUnsafePtrRestriction]
+            public UnsafeList<int4>* PartialIndices;
+            [NativeDisableUnsafePtrRestriction]
+            public Unmanaged* Unmanaged;
 
             public void Execute()
             {
-                ref UnsafeList<int2> pingCoords = ref PingCoordsRef.RefValue;
-                ref UnsafeList<int2> pongCoords = ref PongCoordsRef.RefValue;
-                ref UnsafeList<int4> visibleCoords = ref VisibleCoordsRef.RefValue;
-                ref UnsafeList<int4> partialCoords = ref PartialCoordsRef.RefValue;
+                UnsafeList<int4> pingVisibleCoords = *VisibleCoords;
+                UnsafeList<int4> pongVisibleCoords = new UnsafeList<int4>(VisibleCoords->Length, Allocator.TempJob);
+                UnsafeList<int4> partialCoords = *PartialCoords;
 
-                pongCoords.Capacity = pingCoords.Length * 4;
-                visibleCoords.Capacity += pingCoords.Length;
-                partialCoords.Capacity += pingCoords.Length;
-            }
-        }
+                ref UnsafeList<int4> visibleIndices = ref *VisibleIndices;
+                ref UnsafeList<int4> partialIndices = ref *PartialIndices;
 
-#if ENABLE_BURST
-        [BurstCompile(CompileSynchronously = true)]
-#endif
-        public unsafe struct CullQuadTreeJob : IJobParallelForDefer
-        {
-            [ReadOnly]
-            public UnsafeList<PlanePacket4> PackedPlanes;
-            public UnsafeRef<UnsafeList<int2>> PingCoordsRef;
-            public UnsafeRef<UnsafeList<int2>> PongCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> VisibleCoordsRef;
-            public UnsafeRef<UnsafeList<int4>> PartialCoordsRef;
-            public int Lod;
-            public float LodNodeSize;
-            [ReadOnly]
-            public QuadTreeSetting Setting;
-
-            public void Execute(int index)
-            {
-                ref UnsafeList<int2> pingCoords = ref PingCoordsRef.RefValue;
-                ref UnsafeList<int2> pongCoords = ref PongCoordsRef.RefValue;
-                ref UnsafeList<int4> visibleCoords = ref VisibleCoordsRef.RefValue;
-                ref UnsafeList<int4> partialCoords = ref PartialCoordsRef.RefValue;
-
-                int2 coord = pingCoords[index];
-
-                AABB aabb;
-                aabb.Center.x = Setting.WorldOrigin.x + coord.x * LodNodeSize + 0.5f * LodNodeSize;
-                aabb.Center.y = Setting.WorldOrigin.y + 0.5f * Setting.NodeHeight;
-                aabb.Center.z = Setting.WorldOrigin.z + coord.y * LodNodeSize + 0.5f * LodNodeSize;
-                aabb.Extents = new float3(LodNodeSize, Setting.NodeHeight, LodNodeSize) * 0.5f;
-
-                IntersectResult result = CullingUtility.Intersect(PackedPlanes, aabb);
-                if (result == IntersectResult.In)
+                while (pingVisibleCoords.Length > 0)
                 {
-                    visibleCoords.AsParallelWriter().AddNoResize(new int4(coord.x, 0, coord.y, Lod));
-                }
-                else if (result == IntersectResult.Partial)
-                {
-                    partialCoords.AsParallelWriter().AddNoResize(new int4(coord.x, 0, coord.y, Lod));
-
-                    if (Lod > 0)
+                    for (int i = 0; i < pingVisibleCoords.Length; ++i)
                     {
-                        var writer = pongCoords.AsParallelWriter();
-                        writer.AddNoResize(new int2(coord.x * 2, coord.y * 2));
-                        writer.AddNoResize(new int2(coord.x * 2 + 1, coord.y * 2));
-                        writer.AddNoResize(new int2(coord.x * 2, coord.y * 2 + 1));
-                        writer.AddNoResize(new int2(coord.x * 2 + 1, coord.y * 2 + 1));
+                        int4 coord = pingVisibleCoords[i];
+
+                        if (Unmanaged->Map.TryGetValue(coord, out var list))
+                        {
+                            AddIndices(ref visibleIndices, list);
+                        }
+
+                        if (coord.w > 0)
+                        {
+                            pongVisibleCoords.Add(new int4(coord.x * 2, 0, coord.z * 2, coord.w - 1));
+                            pongVisibleCoords.Add(new int4(coord.x * 2 + 1, 0, coord.z * 2, coord.w - 1));
+                            pongVisibleCoords.Add(new int4(coord.x * 2, 0, coord.z * 2 + 1, coord.w - 1));
+                            pongVisibleCoords.Add(new int4(coord.x * 2 + 1, 0, coord.z * 2 + 1, coord.w - 1));
+                        }
+                    }
+
+                    pingVisibleCoords.Clear();
+
+                    var temp = pingVisibleCoords;
+                    pingVisibleCoords = pongVisibleCoords;
+                    pongVisibleCoords = temp;
+                }
+
+                for (int i = 0; i < partialCoords.Length; ++i)
+                {
+                    if (Unmanaged->Map.TryGetValue(partialCoords[i], out var list))
+                    {
+                        AddIndices(ref partialIndices, list);
                     }
                 }
+
+                AddIndices(ref partialIndices, Unmanaged->Outsiders);
+
+                pingVisibleCoords.Dispose();
+                pongVisibleCoords.Dispose();
+                partialCoords.Dispose();
+
+                MemoryUtility.Free(VisibleCoords, Allocator.TempJob);
+                MemoryUtility.Free(PartialCoords, Allocator.TempJob);
+            }
+
+            void AddIndices(ref UnsafeList<int4> dst, UnsafeList<int4> src)
+            {
+                dst.Length = dst.Length + src.Length;
+                UnsafeUtility.MemCpy(dst.Ptr + dst.Length - src.Length, src.Ptr, src.Length * UnsafeUtility.SizeOf<int4>());
             }
         }
 
@@ -658,18 +544,23 @@ namespace ZGame.Indirect
 
             UnsafeList<PlanePacket4> packedPlanes = CullingUtility.BuildSOAPlanePackets(planes, Allocator.Temp);
 
-            CullQuadTree(packedPlanes, out UnsafeList<int4> visibleCoords, out UnsafeList<int4> partialCoords);
+            UnsafeList<int4>* visibleCoords = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
+            UnsafeList<int4>* partialCoords = MemoryUtility.Malloc<UnsafeList<int4>>(Allocator.TempJob);
 
-            NativeHashSet<int4> visibleCoordSet = new NativeHashSet<int4>(visibleCoords.Length, Allocator.Temp);
-            for (int i = 0; i < visibleCoords.Length; ++i)
-                visibleCoordSet.Add(visibleCoords[i]);
+            CullQuadTree(packedPlanes, visibleCoords, partialCoords).Complete();
 
-            NativeHashSet<int4> partialCoordSet = new NativeHashSet<int4>(partialCoords.Length, Allocator.Temp);
-            for (int i = 0; i < partialCoords.Length; ++i)
-                partialCoordSet.Add(partialCoords[i]);
+            NativeHashSet<int4> visibleCoordSet = new NativeHashSet<int4>(visibleCoords->Length, Allocator.Temp);
+            for (int i = 0; i < visibleCoords->Length; ++i)
+                visibleCoordSet.Add((*visibleCoords)[i]);
 
-            visibleCoords.Dispose();
-            partialCoords.Dispose();
+            NativeHashSet<int4> partialCoordSet = new NativeHashSet<int4>(partialCoords->Length, Allocator.Temp);
+            for (int i = 0; i < partialCoords->Length; ++i)
+                partialCoordSet.Add((*partialCoords)[i]);
+
+            visibleCoords->Dispose();
+            partialCoords->Dispose();
+            MemoryUtility.Free(visibleCoords, Allocator.TempJob);
+            MemoryUtility.Free(partialCoords, Allocator.TempJob);
 
             for (int x = 0; x < _unmanaged->Setting.MaxLodRange.x; ++x)
             {
