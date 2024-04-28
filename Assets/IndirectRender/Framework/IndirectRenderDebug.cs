@@ -24,9 +24,6 @@ namespace ZGame.Indirect
     {
         public IndirectRenderStats GetIndirectRenderStats()
         {
-            if (!_initialized)
-                return new IndirectRenderStats();
-
             IndirectRenderStats stats = new IndirectRenderStats
             {
                 IndirectRenderSetting = _unmanaged->Setting,
@@ -43,47 +40,33 @@ namespace ZGame.Indirect
             return stats;
         }
 
-        public void SetDrawStatus(bool draw)
+        public bool EnableDraw
         {
-            _draw = draw;
+            get { return _draw; }
+            set { _draw = value; }
         }
 
-        public bool GetDrawStatus()
+        public bool EnableQuadTree
         {
-            return _draw;
+            get { return _quadTree.Enable; }
+            set { _quadTree.Enable = value; }
         }
 
-        public void SetFrustumCull(bool enable)
+        public bool EnableFrustumCull
         {
-            if (!_initialized)
-                return;
-
-            _indirectPipeline.SetFrustumCull(enable);
-        }
-
-        public void SetQuadTreeCull(bool enable)
-        {
-            if (!_initialized)
-                return;
-
-            _quadTree.SetQuadTreeCull(enable);
+            get { return _indirectPipeline.EnableFrustumCull; }
+            set { _indirectPipeline.EnableFrustumCull = value; }
         }
 
 #if UNITY_EDITOR
         public void DrawQuadTree()
         {
-            if (!_initialized)
-                return;
-
             _quadTree.DrawGizmo();
         }
 #endif
 
         public void CreateGameobject()
         {
-            if (!_initialized)
-                return;
-
             //GameObject debugRoot = CreateGameObject("Indirect", null);
 
             //Dictionary<Material, Material> materialMap = new Dictionary<Material, Material>();

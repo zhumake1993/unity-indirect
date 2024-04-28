@@ -90,6 +90,18 @@ namespace ZGame.Indirect
         }
 
         [System.Diagnostics.Conditional("ENABLE_PROFILER")]
+        public static void LogErrorBurst(string message)
+        {
+            Debug.LogError(message);
+        }
+
+        [System.Diagnostics.Conditional("ENABLE_PROFILER")]
+        public static void LogWarningBurst(string message)
+        {
+            Debug.LogError(message);
+        }
+
+        [System.Diagnostics.Conditional("ENABLE_PROFILER")]
         public static void Assert(bool value)
         {
             if (!value)

@@ -193,7 +193,7 @@ namespace ZGame.Indirect
                 }
                 else
                 {
-                    Utility.LogError($"invalid user id {id}");
+                    Utility.LogErrorBurst($"invalid user id {id}");
                 }
             }
             Unmanaged->RemoveCache.Clear();
@@ -222,7 +222,7 @@ namespace ZGame.Indirect
 
                     if (meshletCount + Unmanaged->MeshletCount > Unmanaged->Setting.MeshletCapacity)
                     {
-                        Utility.LogError("meshlet capacity exceeded");
+                        Utility.LogErrorBurst("meshlet capacity exceeded");
                         return;
                     }
                 }
@@ -236,7 +236,7 @@ namespace ZGame.Indirect
                     {
                         if (Unmanaged->IndirectMap.Count >= Unmanaged->Setting.BatchCapacity)
                         {
-                            Utility.LogError("batch capacity exceeded");
+                            Utility.LogErrorBurst("batch capacity exceeded");
                             return;
                         }
 
@@ -294,7 +294,7 @@ namespace ZGame.Indirect
                 instanceIndexChunk = Unmanaged->InstanceIndexAllocator.Alloc((UInt32)(instanceCount));
                 if (instanceIndexChunk == Chunk.s_InvalidChunk)
                 {
-                    Utility.LogError($"instance index allocation failed, instanceCount={instanceCount}");
+                    Utility.LogErrorBurst($"instance index allocation failed, instanceCount={instanceCount}");
                     return;
                 }
 
@@ -342,7 +342,7 @@ namespace ZGame.Indirect
                 instanceDataChunk = Unmanaged->InstanceDataAllocator.Alloc((UInt32)(instanceSize * instanceCount));
                 if (instanceDataChunk == Chunk.s_InvalidChunk)
                 {
-                    Utility.LogError($"instance data allocation failed, instanceDataAllocSize={instanceSize * instanceCount}");
+                    Utility.LogErrorBurst($"instance data allocation failed, instanceDataAllocSize={instanceSize * instanceCount}");
                     return;
                 }
 
@@ -392,7 +392,7 @@ namespace ZGame.Indirect
                 Chunk meshletIndexChunk = Unmanaged->MeshletIndexAllocator.Alloc((UInt32)meshletCount);
                 if (meshletIndexChunk == Chunk.s_InvalidChunk)
                 {
-                    Utility.LogError($"meshlet index allocation failed, meshletCount={meshletCount}");
+                    Utility.LogErrorBurst($"meshlet index allocation failed, meshletCount={meshletCount}");
                     return;
                 }
 

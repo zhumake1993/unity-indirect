@@ -32,17 +32,16 @@ namespace ZGame.Indirect
         JobHandle _dispatchJobHandle = new JobHandle();
 
         bool _draw = true;
-        bool _initialized = false;
 
         static IndirectRender s_instance = null;
 
         static readonly int s_indirectIndexBufferID = Shader.PropertyToID("IndirectIndexBuffer");
         static readonly int s_indirectVertexBufferID = Shader.PropertyToID("IndirectVertexBuffer");
 
-        public void Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS, ComputeShader adjustDispatchArgCS)
+        public bool Init(IndirectRenderSetting setting, ComputeShader indirectPipelineCS, ComputeShader adjustDispatchArgCS)
         {
             if (!CheckSetting(setting))
-                return;
+                return false;
 
             _unmanaged = MemoryUtility.Malloc<IndirectRenderUnmanaged>(Allocator.Persistent);
             _unmanaged->Init(setting);
@@ -71,7 +70,8 @@ namespace ZGame.Indirect
             RenderPipelineManager.endContextRendering += OnEndContextRendering;
 
             s_instance = this;
-            _initialized = true;
+
+            return true;
         }
 
         bool CheckSetting(IndirectRenderSetting setting)
@@ -87,9 +87,6 @@ namespace ZGame.Indirect
 
         public void Dispose()
         {
-            if (!_initialized)
-                return;
-
             _quadTree.Dispose();
 
             _cullingHelper.Dispose();
@@ -111,51 +108,67 @@ namespace ZGame.Indirect
 
         void OnBeginContextRendering(ScriptableRenderContext context, List<Camera> cameras)
         {
-            if (!_initialized)
-                return;
-
             Prepare();
         }
 
         void OnEndContextRendering(ScriptableRenderContext context, List<Camera> cameras)
         {
-            if (!_initialized)
-                return;
-
             _bufferManager.Recycle();
         }
 
         public int RegisterMesh(MeshKey meshKey)
         {
-            if (!_initialized)
-                return -1;
-
             return _assetManager.RegisterMesh(meshKey);
         }
 
         public int RegisterMaterial(Material material)
         {
-            if (!_initialized)
-                return -1;
-
             return _assetManager.RegisterMaterial(material);
         }
 
         public Material GetMaterial(int id)
         {
-            if (!_initialized)
-                return null;
-
             return _assetManager.GetMaterial(id);
+        }
+
+        bool CheckBatch(UnsafeList<int> meshIDs, UnsafeList<IndirectKey> indirectKeys, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        {
+            if (meshIDs.Length == 0)
+            {
+                Utility.LogError("meshIDs.Length == 0");
+                return false;
+            }
+
+            if (meshIDs.Length != indirectKeys.Length)
+            {
+                Utility.LogError("meshIDs.Length != indirectKeys.Length");
+                return false;
+            }
+
+            for (int i = 0; i < meshIDs.Length; ++i)
+            {
+                if (meshIDs[i] < 0)
+                {
+                    Utility.LogError($"meshIDs[{i}] < 0");
+                    return false;
+                }
+
+                if (indirectKeys[i].MaterialID < 0)
+                {
+                    Utility.LogError($"indirectKeys[{i}].MaterialID < 0");
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public int AddBatch(UnsafeList<int> meshIDs, UnsafeList<IndirectKey> indirectKeys, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
-            if (!_initialized)
+            if (!CheckBatch(meshIDs, indirectKeys, matrices, properties))
+            {
                 return -1;
-
-            if (meshIDs.Length != indirectKeys.Length)
-                return -1;
+            }
 
             foreach (var indirectKey in indirectKeys)
             {
@@ -190,7 +203,7 @@ namespace ZGame.Indirect
 
         public void RemoveBatch(int id)
         {
-            if (!_initialized)
+            if (id < 0)
                 return;
 
             _unmanaged->RemoveCache.Add(id);
@@ -204,9 +217,6 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_dispatchMarker = new ProfilerMarker("IndirectRender.Dispatch");
         public void Dispatch()
         {
-            if (!_initialized)
-                return;
-
             using (s_dispatchMarker.Auto())
             {
                 JobHandle jobHandle = default;
@@ -257,9 +267,6 @@ namespace ZGame.Indirect
         static readonly ProfilerMarker s_prepareMarker = new ProfilerMarker("IndirectRender.Prepare");
         void Prepare()
         {
-            if (!_initialized)
-                return;
-
             using (s_prepareMarker.Auto())
             {
                 _dispatchJobHandle.Complete();
@@ -455,9 +462,6 @@ namespace ZGame.Indirect
             BatchCullingOutput cullingOutput,
             IntPtr userContext)
         {
-            if (!_initialized)
-                return new JobHandle();
-
             if (!ShouldDraw())
                 return new JobHandle();
 

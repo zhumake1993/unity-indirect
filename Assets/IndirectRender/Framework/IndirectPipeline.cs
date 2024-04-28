@@ -22,6 +22,8 @@ namespace ZGame.Indirect
         BufferManager _bufferManager;
         DispatchHelper _dispatchHelper;
 
+        bool _frustumCull;
+
         public static readonly int s_EnableLodID = Shader.PropertyToID("_EnableLod");
         public static readonly int s_CameraPositionID = Shader.PropertyToID("_CameraPosition");
         public static readonly int s_CameraMatrixID = Shader.PropertyToID("_CameraMatrix");
@@ -37,18 +39,26 @@ namespace ZGame.Indirect
 
             _bufferManager = bufferManager;
             _dispatchHelper = dispatchHelper;
+
+            _frustumCull = true;
+            _indirectPipelineCS.DisableKeyword("_DISABLE_FRUSTUM_CULL");
         }
 
         public void Dispose()
         {
         }
 
-        public void SetFrustumCull(bool enable)
+        public bool EnableFrustumCull
         {
-            if (enable)
-                _indirectPipelineCS.DisableKeyword("_DISABLE_FRUSTUM_CULL");
-            else
-                _indirectPipelineCS.EnableKeyword("_DISABLE_FRUSTUM_CULL");
+            get { return _frustumCull; }
+            set
+            {
+                _frustumCull = value;
+                if (_frustumCull)
+                    _indirectPipelineCS.DisableKeyword("_DISABLE_FRUSTUM_CULL");
+                else
+                    _indirectPipelineCS.EnableKeyword("_DISABLE_FRUSTUM_CULL");
+            }
         }
 
         public void SerLodParam(CommandBuffer cmd, bool enable)

@@ -59,9 +59,10 @@ namespace ZGame.Indirect
             MemoryUtility.Free(_unmanaged, Allocator.Persistent);
         }
 
-        public void SetQuadTreeCull(bool enable)
+        public bool Enable
         {
-            _unmanaged->QuadTreeCull = enable;
+            get { return _unmanaged->QuadTreeCull; }
+            set { _unmanaged->QuadTreeCull = value; }
         }
 
         public void Add(int4 coord, int index)
@@ -503,10 +504,13 @@ namespace ZGame.Indirect
                 MemoryUtility.Free(PartialCoords, Allocator.TempJob);
             }
 
+            static readonly ProfilerMarker s_addMarker = new ProfilerMarker("Add");
             void AddIndices(ref UnsafeList<int4> dst, UnsafeList<int4> src)
             {
+                s_addMarker.Begin();
                 dst.Length = dst.Length + src.Length;
                 UnsafeUtility.MemCpy(dst.Ptr + dst.Length - src.Length, src.Ptr, src.Length * UnsafeUtility.SizeOf<int4>());
+                s_addMarker.End();
             }
         }
 
@@ -534,13 +538,13 @@ namespace ZGame.Indirect
 #if UNITY_EDITOR
         public void DrawGizmo()
         {
-            Plane[] _planeArray = new Plane[6];
-            GeometryUtility.CalculateFrustumPlanes(Camera.main, _planeArray);
+            Plane[] planeArray = new Plane[6];
+            GeometryUtility.CalculateFrustumPlanes(Camera.main, planeArray);
 
             UnsafeList<Plane> planes = new UnsafeList<Plane>(6, Allocator.Temp);
             planes.Length = 6;
             for (int i = 0; i < 6; ++i)
-                planes[i] = _planeArray[i];
+                planes[i] = planeArray[i];
 
             UnsafeList<PlanePacket4> packedPlanes = CullingUtility.BuildSOAPlanePackets(planes, Allocator.Temp);
 
