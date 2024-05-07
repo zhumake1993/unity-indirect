@@ -121,9 +121,19 @@ namespace ZGame.Indirect
             return _assetManager.RegisterMesh(mesh);
         }
 
+        public void UnregisterMesh(int id)
+        {
+            _assetManager.UnregisterMesh(id);
+        }
+
         public int RegisterMaterial(Material material)
         {
             return _assetManager.RegisterMaterial(material);
+        }
+
+        public void UnregisterMaterial(int id)
+        {
+            _assetManager.UnregisterMaterial(id);
         }
 
         public Material GetMaterial(int id)

@@ -56,12 +56,6 @@ public class IndirectRenderTest : MonoBehaviour
 
     void Start()
     {
-#if ZGAME_INDIRECT_SHADOW
-        Debug.Log("ZGAME_INDIRECT_SHADOW is On");
-#else
-        Debug.Log("ZGAME_INDIRECT_SHADOW is Off");
-#endif
-
         _indirectRender = new IndirectRender();
 
         IndirectRenderSetting indirectRenderSetting = new IndirectRenderSetting()
@@ -269,9 +263,26 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            //Add(1, 0, 1000, 1);
+            Add(1, 0, 1000, 1);
             //for (int i = 0; i < MaxHeight; ++i) Add(0, 0, MaxInstanceCount, i);
+        }
+
+        if (GUILayout.Button("TestLod", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
+        {
             TestLod();
+        }
+
+        if (GUILayout.Button("TestMerge", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
+        {
+            for (int iTurn = 0; iTurn < 128; ++iTurn)
+            {
+                for (int i = 0; i < _meshIDs.Length; ++i)
+                    _indirectRender.UnregisterMesh(_meshIDs[i]);
+                for (int i = 0; i < _materialIDs.Length; ++i)
+                    _indirectRender.UnregisterMaterial(_materialIDs[i]);
+
+                PrepareAssets();
+            }
         }
 
         if (GUILayout.Button("AddRandom", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
@@ -402,10 +413,6 @@ public class IndirectRenderTest : MonoBehaviour
 
         log += "[MeshMerger]\n";
         log += $"  UnitMeshTriangleCount={meshMergerStats.MeshletTriangleCount}\n";
-        log += $"  IndexCapacity: {meshMergerStats.TotalIndexCount}/{meshMergerStats.IndexCapacity}" +
-            $"({100.0f * meshMergerStats.TotalIndexCount / meshMergerStats.IndexCapacity}%)\n";
-        log += $"  VertexCapacity: {meshMergerStats.TotalVertexCount}/{meshMergerStats.VertexCapacity}" +
-            $"({100.0f * meshMergerStats.TotalVertexCount / meshMergerStats.VertexCapacity}%)\n";
 
         log += "[Capacity]\n";
         log += $"  InstanceCapacity: {indirectRenderStats.InstanceCount}/{indirectRenderSetting.InstanceCapacity}" +

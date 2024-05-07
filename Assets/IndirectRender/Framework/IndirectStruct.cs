@@ -48,8 +48,12 @@ namespace ZGame.Indirect
         public float2 UV1;
         public float2 UV2;
         public float2 UV3;
+        public float2 UV4;
+        public float2 UV5;
+        public float2 UV6;
+        public float2 UV7;
 
-        public const int c_SizeF4 = 6;
+        public const int c_SizeF4 = 8;
         public const int c_Size = c_SizeF4 * 16;
 
         public override int GetHashCode()
@@ -61,7 +65,11 @@ namespace ZGame.Indirect
                 ^ UV0.GetHashCode()
                 ^ UV1.GetHashCode()
                 ^ UV2.GetHashCode()
-                ^ UV3.GetHashCode();
+                ^ UV3.GetHashCode()
+                ^ UV4.GetHashCode()
+                ^ UV5.GetHashCode()
+                ^ UV6.GetHashCode()
+                ^ UV7.GetHashCode();
         }
 
         public override bool Equals(object obj)
@@ -81,7 +89,11 @@ namespace ZGame.Indirect
                 && UV0.Equals(other.UV0)
                 && UV1.Equals(other.UV1)
                 && UV2.Equals(other.UV2)
-                && UV3.Equals(other.UV3);
+                && UV3.Equals(other.UV3)
+                && UV4.Equals(other.UV4)
+                && UV5.Equals(other.UV5)
+                && UV6.Equals(other.UV6)
+                && UV7.Equals(other.UV7);
         }
 
         public static bool operator ==(IndirectVertexData a, IndirectVertexData b)
@@ -101,6 +113,8 @@ namespace ZGame.Indirect
         public int VertexOffset;
         public int VertexCount;
         public AABB AABB;
+        public Chunk IndexChunk;
+        public Chunk VertexChunk;
     }
 
     public struct SubMeshInfo

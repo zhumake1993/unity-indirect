@@ -65,6 +65,20 @@ namespace ZGame.Indirect
             }
         }
 
+        public void UnregisterMesh(int id)
+        {
+            if (_idToMesh.TryGetValue(id, out var mesh))
+            {
+                MeshInfo meshInfo = _idToMeshInfo[id];
+                _meshMerger.Release(meshInfo);
+
+                _meshIDGenerator.ReturnID(id);
+                _meshToID.Remove(mesh);
+                _idToMesh.Remove(id);
+                _idToMeshInfo.Remove(id);
+            }
+        }
+
         public int RegisterMaterial(Material material)
         {
             if (_materialToID.TryGetValue(material, out int id))
@@ -85,6 +99,23 @@ namespace ZGame.Indirect
                 _idToBatchMaterialID[newID] = _brg.RegisterMaterial(material);
 
                 return newID;
+            }
+        }
+
+        public void UnregisterMaterial(int id)
+        {
+            if (_idToMaterial.TryGetValue(id, out var material))
+            {
+                _materialIDGenerator.ReturnID(id);
+                _brg.UnregisterMaterial(_idToBatchMaterialID[id]);
+                _idToMaterial.Remove(id);
+                _materialToID.Remove(material);
+                _idToBatchMaterialID.Remove(id);
+            }
+
+            if (_idToShaderLayout.ContainsKey(id))
+            {
+                _idToShaderLayout.Remove(id);
             }
         }
 

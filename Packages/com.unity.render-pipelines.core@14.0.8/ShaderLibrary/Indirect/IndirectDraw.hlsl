@@ -16,6 +16,10 @@ struct IndirectVertexData
     float2 uv1;
     float2 uv2;
     float2 uv3;
+    float2 uv4;
+    float2 uv5;
+    float2 uv6;
+    float2 uv7;
 };
 
 StructuredBuffer<MeshletDescriptor> MeshletDescriptorBuffer;

@@ -14,13 +14,11 @@ namespace ZGame.Indirect
         int _indexCapacity;
         int _vertexCapacity;
         int _meshletTriangleCount;
-        int _totalIndexCount;
-        int _totalVertexCount;
 
-        int[] _meshletIndices;
-        List<IndirectVertexData> _meshletVertices;
-        Dictionary<IndirectVertexData, int> _meshletVertexMap;
         List<MeshInfo> _meshInfos;
+
+        BuddyAllocator _indexAllocator;
+        BuddyAllocator _vertexAllocator;
 
         GraphicsBuffer _indexBuffer;
         GraphicsBuffer _vertexBuffer;
@@ -31,23 +29,22 @@ namespace ZGame.Indirect
             _vertexCapacity = vertexCapacity;
             _meshletTriangleCount = meshletTriangleCount;
 
-            _totalIndexCount = 0;
-            _totalVertexCount = 0;
-
-            int meshletIndexCount = _meshletTriangleCount * 3;
-            _meshletIndices = new int[meshletIndexCount];
-            _meshletVertices = new List<IndirectVertexData>(meshletIndexCount);
-            _meshletVertexMap = new Dictionary<IndirectVertexData, int>(meshletIndexCount);
             _meshInfos = new List<MeshInfo>();
 
-            _indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _indexCapacity, sizeof(int));
-            _vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _vertexCapacity, IndirectVertexData.c_Size);
+            _indexAllocator.Init(128, (uint)_indexCapacity, 1);
+            _vertexAllocator.Init(1024, (uint)_vertexCapacity, 1);
+
+            _indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _indexCapacity / sizeof(int), sizeof(int));
+            _vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _vertexCapacity / sizeof(int), sizeof(int));
         }
 
         public void Dispose()
         {
             foreach(var info in _meshInfos)
                 info.Dispose();
+
+            _indexAllocator.Dispose();
+            _vertexAllocator.Dispose();
 
             _indexBuffer.Release();
             _vertexBuffer.Release();
@@ -70,8 +67,11 @@ namespace ZGame.Indirect
 
         public MeshInfo Merge(Mesh mesh)
         {
-            if (!Check(mesh))
+            if (!mesh.isReadable)
+            {
+                Utility.LogError($"mesh is not readable, mesh={mesh.name}");
                 return MeshInfo.s_Invalid;
+            }
 
             int meshletIndexCount = _meshletTriangleCount * 3;
 
@@ -96,6 +96,10 @@ namespace ZGame.Indirect
                 Vector2[] uv1 = mesh.uv2;
                 Vector2[] uv2 = mesh.uv3;
                 Vector2[] uv3 = mesh.uv4;
+                Vector2[] uv4 = mesh.uv5;
+                Vector2[] uv5 = mesh.uv6;
+                Vector2[] uv6 = mesh.uv7;
+                Vector2[] uv7 = mesh.uv8;
 
                 int indexLeft = subMeshDescriptor.indexCount;
                 int indexOffset = 0;
@@ -104,8 +108,9 @@ namespace ZGame.Indirect
                     int indexCount = math.min(indexLeft, meshletIndexCount);
                     indexLeft -= indexCount;
 
-                    _meshletVertices.Clear();
-                    _meshletVertexMap.Clear();
+                    NativeList<int> meshletIndices = new NativeList<int>(indexCount, Allocator.Temp);
+                    NativeList<IndirectVertexData> meshletVertices = new NativeList<IndirectVertexData>(indexCount, Allocator.Temp);
+                    NativeParallelHashMap<IndirectVertexData, int> meshletVertexMap = new NativeParallelHashMap<IndirectVertexData, int>(indexCount, Allocator.Temp);
 
                     int iIndex = 0;
                     for (; iIndex < indexCount; ++iIndex)
@@ -122,42 +127,60 @@ namespace ZGame.Indirect
                             UV1 = index < uv1.Length ? uv1[index] : float2.zero,
                             UV2 = index < uv2.Length ? uv2[index] : float2.zero,
                             UV3 = index < uv3.Length ? uv3[index] : float2.zero,
+                            UV4 = index < uv4.Length ? uv4[index] : float2.zero,
+                            UV5 = index < uv5.Length ? uv5[index] : float2.zero,
+                            UV6 = index < uv6.Length ? uv6[index] : float2.zero,
+                            UV7 = index < uv7.Length ? uv7[index] : float2.zero,
                         };
 
-                        if (_meshletVertexMap.TryGetValue(vertex, out int previousIndex))
+                        if (meshletVertexMap.TryGetValue(vertex, out int previousIndex))
                         {
-                            _meshletIndices[iIndex] = previousIndex;
+                            meshletIndices.Add(previousIndex);
                         }
                         else
                         {
-                            int newIndex = _meshletVertices.Count;
-                            _meshletIndices[iIndex] = newIndex;
-                            _meshletVertices.Add(vertex);
-                            _meshletVertexMap.Add(vertex, newIndex);
+                            int newIndex = meshletVertices.Length;
+                            meshletIndices.Add(newIndex);
+                            meshletVertices.Add(vertex);
+                            meshletVertexMap.Add(vertex, newIndex);
                         }
                     }
 
                     for (; iIndex < meshletIndexCount; ++iIndex)
                     {
-                        _meshletIndices[iIndex] = 0;
+                        meshletIndices.Add(0);
                     }
 
-                    // upload
-
-                    _indexBuffer.SetData(_meshletIndices, 0, _totalIndexCount, meshletIndexCount);
-                    _vertexBuffer.SetData(_meshletVertices, 0, _totalVertexCount, _meshletVertices.Count);
-
-                    MeshletInfo unitMeshInfo = new MeshletInfo()
+                    Chunk indexChunk = _indexAllocator.Alloc((UInt32)(meshletIndexCount * sizeof(int)));
+                    if (indexChunk == Chunk.s_InvalidChunk)
                     {
-                        IndexOffset = _totalIndexCount,
-                        VertexOffset = _totalVertexCount,
-                        VertexCount = _meshletVertices.Count,
-                        AABB = CalculateAABB(_meshletIndices, _meshletVertices),
-                    };
-                    meshletInfos.Add(unitMeshInfo);
+                        Utility.LogErrorBurst($"index allocation failed, index count={meshletIndexCount}");
+                        return MeshInfo.s_Invalid;
+                    }
 
-                    _totalIndexCount += meshletIndexCount;
-                    _totalVertexCount += _meshletVertices.Count;
+                    int startIndex = (int)indexChunk.AddressOf() / sizeof(int);
+                    _indexBuffer.SetData(meshletIndices.AsArray(), 0, startIndex, meshletIndexCount);
+
+                    Chunk vertexChunk = _vertexAllocator.Alloc((UInt32)(meshletVertices.Length * IndirectVertexData.c_Size));
+                    if (vertexChunk == Chunk.s_InvalidChunk)
+                    {
+                        Utility.LogErrorBurst($"vertex allocation failed, vertex count={meshletVertices.Length}");
+                        return MeshInfo.s_Invalid;
+                    }
+
+                    int startVertex = (int)vertexChunk.AddressOf() / IndirectVertexData.c_Size;
+                    _vertexBuffer.SetData(meshletVertices.AsArray(), 0, startVertex, meshletVertices.Length);
+
+                    MeshletInfo meshletInfo = new MeshletInfo()
+                    {
+                        IndexOffset = startIndex,
+                        VertexOffset = startVertex,
+                        VertexCount = meshletVertices.Length,
+                        AABB = CalculateAABB(meshletIndices, meshletVertices),
+                        IndexChunk = indexChunk,
+                        VertexChunk = vertexChunk,
+                    };
+                    meshletInfos.Add(meshletInfo);
 
                     indexOffset += indexCount;
                 }
@@ -176,47 +199,22 @@ namespace ZGame.Indirect
             return meshInfo;
         }
 
-        bool Check(Mesh mesh)
+        public void Release(MeshInfo meshInfo)
         {
-            if (!mesh.isReadable)
+            foreach (var subMeshInfo in meshInfo.SubMeshInfos)
             {
-                Utility.LogError($"mesh is not readable, mesh={mesh.name}");
-                return false;
+                foreach (var meshletInfo in subMeshInfo.MeshletInfos)
+                {
+                    _indexAllocator.Free(meshletInfo.IndexChunk);
+                    _vertexAllocator.Free(meshletInfo.VertexChunk);
+                }
             }
 
-            int meshletIndexCount = _meshletTriangleCount * 3;
-
-            int totalExpectedIndexCount = 0;
-            int totalExpectedVertexCount = 0;
-
-            int sunMeshCount = mesh.subMeshCount;
-            for (int submeshIndex = 0; submeshIndex < sunMeshCount; ++submeshIndex)
-            {
-                SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
-
-                int expectedIndexCount = (subMeshDescriptor.indexCount + meshletIndexCount - 1) / meshletIndexCount * meshletIndexCount;
-                int expectedVertexCount = expectedIndexCount / 3;
-
-                totalExpectedIndexCount += expectedIndexCount;
-                totalExpectedVertexCount += expectedVertexCount;
-            }
-
-            if (totalExpectedIndexCount + _totalIndexCount > _indexCapacity)
-            {
-                Utility.LogError($"index capacity exceeded, mesh={mesh.name}");
-                return false;
-            }
-
-            if (totalExpectedVertexCount + _totalVertexCount >= _vertexCapacity)
-            {
-                Utility.LogError($"vertex capacity exceeded, mesh={mesh.name}");
-                return false;
-            }
-
-            return true;
+            _meshInfos.Remove(meshInfo);
+            meshInfo.Dispose();
         }
 
-        AABB CalculateAABB(int[] meshletIndices, List<IndirectVertexData> meshletVertices)
+        AABB CalculateAABB(NativeList<int> meshletIndices, NativeList<IndirectVertexData> meshletVertices)
         {
             int meshletIndexCount = _meshletTriangleCount * 3;
 
@@ -316,8 +314,6 @@ namespace ZGame.Indirect
                 IndexCapacity = _indexCapacity,
                 VertexCapacity = _vertexCapacity,
                 MeshletTriangleCount = _meshletTriangleCount,
-                TotalIndexCount = _totalIndexCount,
-                TotalVertexCount = _totalVertexCount,
             };
 
             return stats;
@@ -329,7 +325,5 @@ namespace ZGame.Indirect
         public int IndexCapacity;
         public int VertexCapacity;
         public int MeshletTriangleCount;
-        public int TotalIndexCount;
-        public int TotalVertexCount;
     }
 }
