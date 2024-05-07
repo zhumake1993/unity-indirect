@@ -68,148 +68,160 @@ namespace ZGame.Indirect
             return _vertexBuffer;
         }
 
-        public MeshInfo Merge(MeshKey meshKey)
+        public MeshInfo Merge(Mesh mesh)
         {
-            if (!Check(meshKey))
+            if (!Check(mesh))
                 return MeshInfo.s_Invalid;
 
-            Mesh mesh = meshKey.Mesh;
-            int submeshIndex = meshKey.SubmeshIndex;
-            bool flipZ = meshKey.FlipZ;
-
-            SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
-
             int meshletIndexCount = _meshletTriangleCount * 3;
-            UnsafeList<MeshletInfo> meshletInfos = new UnsafeList<MeshletInfo>(1, Allocator.Persistent);
-
-            int[] indices = mesh.triangles;
-            Vector3[] positions = mesh.vertices;
-            Vector3[] normals = mesh.normals;
-            Vector4[] tangents = mesh.tangents;
-            Color[] colors = mesh.colors;
-            Vector2[] uv0 = mesh.uv;
-            Vector2[] uv1 = mesh.uv2;
-            Vector2[] uv2 = mesh.uv3;
-            Vector2[] uv3 = mesh.uv4;
-
-            int indexLeft = subMeshDescriptor.indexCount;
-            int indexOffset = 0;
-            while (indexLeft > 0)
-            {
-                int indexCount = math.min(indexLeft, meshletIndexCount);
-                indexLeft -= indexCount;
-
-                _meshletVertices.Clear();
-                _meshletVertexMap.Clear();
-
-                int iIndex = 0;
-                for (; iIndex < indexCount; ++iIndex)
-                {
-                    int index = indices[subMeshDescriptor.indexStart + indexOffset + iIndex] + subMeshDescriptor.baseVertex;
-
-                    IndirectVertexData vertex = new IndirectVertexData()
-                    {
-                        Position = new float4(positions[index], 0),
-                        Normal = index < normals.Length ? new float4(normals[index], 0) : float4.zero,
-                        Tangent = index < tangents.Length ? tangents[index] : float4.zero,
-                        Color = index < colors.Length ? new float4(colors[index].r, colors[index].g, colors[index].b, colors[index].a) : float4.zero,
-                        UV0 = index < uv0.Length ? uv0[index] : float2.zero,
-                        UV1 = index < uv1.Length ? uv1[index] : float2.zero,
-                        UV2 = index < uv2.Length ? uv2[index] : float2.zero,
-                        UV3 = index < uv3.Length ? uv3[index] : float2.zero,
-                    };
-
-                    if (_meshletVertexMap.TryGetValue(vertex, out int previousIndex))
-                    {
-                        _meshletIndices[iIndex] = previousIndex;
-                    }
-                    else
-                    {
-                        int newIndex = _meshletVertices.Count;
-                        _meshletIndices[iIndex] = newIndex;
-                        _meshletVertices.Add(vertex);
-                        _meshletVertexMap.Add(vertex, newIndex);
-                    }
-                }
-
-                for (; iIndex < meshletIndexCount; ++iIndex)
-                {
-                    _meshletIndices[iIndex] = 0;
-                }
-
-                // upload
-
-                _indexBuffer.SetData(_meshletIndices, 0, _totalIndexCount, meshletIndexCount);
-                _vertexBuffer.SetData(_meshletVertices, 0, _totalVertexCount, _meshletVertices.Count);
-
-                MeshletInfo unitMeshInfo = new MeshletInfo()
-                {
-                    IndexOffset = _totalIndexCount,
-                    VertexOffset = _totalVertexCount,
-                    VertexCount = _meshletVertices.Count,
-                    AABB = CalculateAABB(),
-                };
-                meshletInfos.Add(unitMeshInfo);
-
-                _totalIndexCount += meshletIndexCount;
-                _totalVertexCount += _meshletVertices.Count;
-
-                indexOffset += indexCount;
-            }
 
             MeshInfo meshInfo = new MeshInfo()
             {
-                MeshletInfos = meshletInfos,
-                AABB = new AABB(subMeshDescriptor.bounds)
+                SubMeshInfos = new UnsafeList<SubMeshInfo>(1, Allocator.Persistent),
             };
+
+            int sunMeshCount = mesh.subMeshCount;
+            for (int submeshIndex = 0; submeshIndex < sunMeshCount; ++submeshIndex)
+            {
+                SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
+
+                UnsafeList<MeshletInfo> meshletInfos = new UnsafeList<MeshletInfo>(1, Allocator.Persistent);
+
+                int[] indices = mesh.triangles;
+                Vector3[] positions = mesh.vertices;
+                Vector3[] normals = mesh.normals;
+                Vector4[] tangents = mesh.tangents;
+                Color[] colors = mesh.colors;
+                Vector2[] uv0 = mesh.uv;
+                Vector2[] uv1 = mesh.uv2;
+                Vector2[] uv2 = mesh.uv3;
+                Vector2[] uv3 = mesh.uv4;
+
+                int indexLeft = subMeshDescriptor.indexCount;
+                int indexOffset = 0;
+                while (indexLeft > 0)
+                {
+                    int indexCount = math.min(indexLeft, meshletIndexCount);
+                    indexLeft -= indexCount;
+
+                    _meshletVertices.Clear();
+                    _meshletVertexMap.Clear();
+
+                    int iIndex = 0;
+                    for (; iIndex < indexCount; ++iIndex)
+                    {
+                        int index = indices[subMeshDescriptor.indexStart + indexOffset + iIndex] + subMeshDescriptor.baseVertex;
+
+                        IndirectVertexData vertex = new IndirectVertexData()
+                        {
+                            Position = new float4(positions[index], 0),
+                            Normal = index < normals.Length ? new float4(normals[index], 0) : float4.zero,
+                            Tangent = index < tangents.Length ? tangents[index] : float4.zero,
+                            Color = index < colors.Length ? new float4(colors[index].r, colors[index].g, colors[index].b, colors[index].a) : float4.zero,
+                            UV0 = index < uv0.Length ? uv0[index] : float2.zero,
+                            UV1 = index < uv1.Length ? uv1[index] : float2.zero,
+                            UV2 = index < uv2.Length ? uv2[index] : float2.zero,
+                            UV3 = index < uv3.Length ? uv3[index] : float2.zero,
+                        };
+
+                        if (_meshletVertexMap.TryGetValue(vertex, out int previousIndex))
+                        {
+                            _meshletIndices[iIndex] = previousIndex;
+                        }
+                        else
+                        {
+                            int newIndex = _meshletVertices.Count;
+                            _meshletIndices[iIndex] = newIndex;
+                            _meshletVertices.Add(vertex);
+                            _meshletVertexMap.Add(vertex, newIndex);
+                        }
+                    }
+
+                    for (; iIndex < meshletIndexCount; ++iIndex)
+                    {
+                        _meshletIndices[iIndex] = 0;
+                    }
+
+                    // upload
+
+                    _indexBuffer.SetData(_meshletIndices, 0, _totalIndexCount, meshletIndexCount);
+                    _vertexBuffer.SetData(_meshletVertices, 0, _totalVertexCount, _meshletVertices.Count);
+
+                    MeshletInfo unitMeshInfo = new MeshletInfo()
+                    {
+                        IndexOffset = _totalIndexCount,
+                        VertexOffset = _totalVertexCount,
+                        VertexCount = _meshletVertices.Count,
+                        AABB = CalculateAABB(_meshletIndices, _meshletVertices),
+                    };
+                    meshletInfos.Add(unitMeshInfo);
+
+                    _totalIndexCount += meshletIndexCount;
+                    _totalVertexCount += _meshletVertices.Count;
+
+                    indexOffset += indexCount;
+                }
+
+                SubMeshInfo subMeshInfo = new SubMeshInfo()
+                {
+                    MeshletInfos = meshletInfos,
+                    AABB = new AABB(subMeshDescriptor.bounds)
+                };
+
+                meshInfo.SubMeshInfos.Add(subMeshInfo);
+            }
 
             _meshInfos.Add(meshInfo);
 
             return meshInfo;
         }
 
-        bool Check(MeshKey meshKey)
+        bool Check(Mesh mesh)
         {
-            Mesh mesh = meshKey.Mesh;
-            int submeshIndex = meshKey.SubmeshIndex;
-
             if (!mesh.isReadable)
             {
                 Utility.LogError($"mesh is not readable, mesh={mesh.name}");
                 return false;
             }
 
-            SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
-
             int meshletIndexCount = _meshletTriangleCount * 3;
 
-            int expectedIndexCount = (subMeshDescriptor.indexCount + meshletIndexCount - 1) / meshletIndexCount * meshletIndexCount;
-            if (expectedIndexCount + _totalIndexCount > _indexCapacity)
-            {
-                Utility.LogError($"index capacity exceeded, mesh={mesh.name}, submeshIndex={submeshIndex}" +
-                    $" indexCount={subMeshDescriptor.indexCount}, _totalIndexCount={_totalIndexCount}, _indexCapacity={_indexCapacity}");
+            int totalExpectedIndexCount = 0;
+            int totalExpectedVertexCount = 0;
 
+            int sunMeshCount = mesh.subMeshCount;
+            for (int submeshIndex = 0; submeshIndex < sunMeshCount; ++submeshIndex)
+            {
+                SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(submeshIndex);
+
+                int expectedIndexCount = (subMeshDescriptor.indexCount + meshletIndexCount - 1) / meshletIndexCount * meshletIndexCount;
+                int expectedVertexCount = expectedIndexCount / 3;
+
+                totalExpectedIndexCount += expectedIndexCount;
+                totalExpectedVertexCount += expectedVertexCount;
+            }
+
+            if (totalExpectedIndexCount + _totalIndexCount > _indexCapacity)
+            {
+                Utility.LogError($"index capacity exceeded, mesh={mesh.name}");
                 return false;
             }
 
-            int expectedVertexCOunt = expectedIndexCount / 3;
-            if (expectedVertexCOunt + _totalVertexCount >= _vertexCapacity)
+            if (totalExpectedVertexCount + _totalVertexCount >= _vertexCapacity)
             {
-                Utility.LogError($"vertex capacity exceeded, mesh={mesh.name}, submeshIndex={submeshIndex}" +
-                    $" vertexCount={mesh.vertexCount}, _totalVertexCount={_totalVertexCount}, _vertexCapacity={_vertexCapacity}");
-
+                Utility.LogError($"vertex capacity exceeded, mesh={mesh.name}");
                 return false;
             }
 
             return true;
         }
 
-        AABB CalculateAABB()
+        AABB CalculateAABB(int[] meshletIndices, List<IndirectVertexData> meshletVertices)
         {
             int meshletIndexCount = _meshletTriangleCount * 3;
 
-            int firstIndex = _meshletIndices[0];
-            IndirectVertexData firstVertex = _meshletVertices[firstIndex];
+            int firstIndex = meshletIndices[0];
+            IndirectVertexData firstVertex = meshletVertices[firstIndex];
 
             AABB aabb = new AABB()
             {
@@ -219,8 +231,8 @@ namespace ZGame.Indirect
 
             for (int iIndex = 1; iIndex < meshletIndexCount; ++iIndex)
             {
-                int index = _meshletIndices[iIndex];
-                IndirectVertexData vertex = _meshletVertices[index];
+                int index = meshletIndices[iIndex];
+                IndirectVertexData vertex = meshletVertices[index];
                 aabb.Encapsulate(vertex.Position.xyz);
             }
 
@@ -271,15 +283,15 @@ namespace ZGame.Indirect
             return debugMesh;
         }
 
-        public void CreateDebugGameObject(MeshKey meshKey, MeshInfo meshInfo, Vector3 position)
+        public void CreateDebugGameObject(Mesh mesh, int subMeshIndex, MeshInfo meshInfo, Vector3 position)
         {
             Unity.Mathematics.Random random = new Unity.Mathematics.Random(1234);
 
-            GameObject root = new GameObject($"{meshKey.Mesh.name}-{meshKey.SubmeshIndex}-{meshKey.FlipZ}-{meshInfo.MeshletInfos.Length}");
+            GameObject root = new GameObject($"{mesh.name}-{subMeshIndex}-{meshInfo.SubMeshInfos[subMeshIndex].MeshletInfos.Length}");
             root.transform.position = position;
 
             int meshletIndex = 0;
-            UnsafeList<MeshletInfo> MeshletInfos = meshInfo.MeshletInfos;
+            UnsafeList<MeshletInfo> MeshletInfos = meshInfo.SubMeshInfos[subMeshIndex].MeshletInfos;
             foreach (MeshletInfo meshletInfo in MeshletInfos)
             {
                 Mesh debugMesh = CreateDebugMesh(meshletInfo);

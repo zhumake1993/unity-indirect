@@ -116,9 +116,9 @@ namespace ZGame.Indirect
             _bufferManager.Recycle();
         }
 
-        public int RegisterMesh(MeshKey meshKey)
+        public int RegisterMesh(Mesh mesh)
         {
-            return _assetManager.RegisterMesh(meshKey);
+            return _assetManager.RegisterMesh(mesh);
         }
 
         public int RegisterMaterial(Material material)
@@ -131,25 +131,13 @@ namespace ZGame.Indirect
             return _assetManager.GetMaterial(id);
         }
 
-        bool CheckBatch(UnsafeList<int> meshIDs, UnsafeList<IndirectKey> indirectKeys, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        bool CheckBatch(UnsafeList<IndirectKey> indirectKeys, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
-            if (meshIDs.Length == 0)
+            for (int i = 0; i < indirectKeys.Length; ++i)
             {
-                Utility.LogError("meshIDs.Length == 0");
-                return false;
-            }
-
-            if (meshIDs.Length != indirectKeys.Length)
-            {
-                Utility.LogError("meshIDs.Length != indirectKeys.Length");
-                return false;
-            }
-
-            for (int i = 0; i < meshIDs.Length; ++i)
-            {
-                if (meshIDs[i] < 0)
+                if (indirectKeys[i].MeshID < 0)
                 {
-                    Utility.LogError($"meshIDs[{i}] < 0");
+                    Utility.LogError($"indirectKeys[{i}].MeshID < 0");
                     return false;
                 }
 
@@ -163,9 +151,9 @@ namespace ZGame.Indirect
             return true;
         }
 
-        public int AddBatch(UnsafeList<int> meshIDs, UnsafeList<IndirectKey> indirectKeys, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        public int AddBatch(UnsafeList<IndirectKey> indirectKeys, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
-            if (!CheckBatch(meshIDs, indirectKeys, matrices, properties))
+            if (!CheckBatch(indirectKeys, matrices, properties))
             {
                 return -1;
             }
@@ -179,15 +167,14 @@ namespace ZGame.Indirect
                 });
             }
 
-            UnsafeList<MeshInfo> meshInfos = new UnsafeList<MeshInfo>(meshIDs.Length, Allocator.TempJob);
-            for (int i = 0; i < meshIDs.Length; ++i)
-                meshInfos.Add(_assetManager.GetMeshInfo(meshIDs[i]));
-            meshIDs.Dispose();
+            UnsafeList<SubMeshInfo> subMeshInfos = new UnsafeList<SubMeshInfo>(indirectKeys.Length, Allocator.TempJob);
+            for (int i = 0; i < indirectKeys.Length; ++i)
+                subMeshInfos.Add(_assetManager.GetMeshInfo(indirectKeys[i].MeshID, indirectKeys[i].SubmeshIndex));
 
             AddItem addItem = new AddItem
             {
                 CmdID = _unmanaged->CmdIDGenerator.GetID(),
-                MeshInfos = meshInfos,
+                SubMeshInfos = subMeshInfos,
                 IndirectKeys = indirectKeys,
                 LodParam = lodParam,
                 NeedInverse = needInverse,

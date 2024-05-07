@@ -25,7 +25,7 @@ public class MeshMergerTest : MonoBehaviour
     public bool DrawAABB = false;
 
     MeshMerger _meshMerger;
-    Dictionary<MeshKey, MeshInfo> _meshInfos = new Dictionary<MeshKey, MeshInfo>();
+    Dictionary<Mesh, MeshInfo> _meshInfos = new Dictionary<Mesh, MeshInfo>();
 
     int _buttonSize = 100;
     GUIStyle _style;
@@ -39,15 +39,8 @@ public class MeshMergerTest : MonoBehaviour
         {
             if (testMesh.Mesh != null)
             {
-                MeshKey meshKey = new MeshKey
-                {
-                    Mesh = testMesh.Mesh,
-                    SubmeshIndex = testMesh.SubmeshIndex,
-                    FlipZ = testMesh.FlipZ
-                };
-
-                MeshInfo meshInfo = _meshMerger.Merge(meshKey);
-                _meshInfos.Add(meshKey, meshInfo);
+                MeshInfo meshInfo = _meshMerger.Merge(testMesh.Mesh);
+                _meshInfos.Add(testMesh.Mesh, meshInfo);
             }
         }
 
@@ -73,10 +66,10 @@ public class MeshMergerTest : MonoBehaviour
             int index = 0;
             foreach (var pair in _meshInfos)
             {
-                MeshKey meshKey = pair.Key;
+                Mesh mesh = pair.Key;
                 MeshInfo meshInfo = pair.Value;
 
-                _meshMerger.CreateDebugGameObject(meshKey, meshInfo, new Vector3(index * 1.5f, 0, 0));
+                _meshMerger.CreateDebugGameObject(mesh, 0, meshInfo, new Vector3(index * 1.5f, 0, 0));
                 index++;
             }
         }
@@ -90,17 +83,17 @@ public class MeshMergerTest : MonoBehaviour
             {
                 itr.MoveNext();
             }
-            MeshKey meshKey = itr.Current.Key;
+            Mesh mesh = itr.Current.Key;
             MeshInfo meshInfo = itr.Current.Value;
 
-            log += $"mesh={meshKey.Mesh.name},SubmeshIndex={meshKey.SubmeshIndex},FlipZ={meshKey.FlipZ},UnitMeshCount={meshInfo.MeshletInfos.Length}\n";
+            log += $"mesh={mesh.name},SubmeshIndex={0},UnitMeshCount={meshInfo.SubMeshInfos[0].MeshletInfos.Length}\n";
 
-            UnityEngine.Rendering.SubMeshDescriptor subMeshDescriptor = meshKey.Mesh.GetSubMesh(meshKey.SubmeshIndex);
+            UnityEngine.Rendering.SubMeshDescriptor subMeshDescriptor = mesh.GetSubMesh(0);
             log += $"subMeshDescriptor.indexStart={subMeshDescriptor.indexStart},indexCount={subMeshDescriptor.indexCount}," +
                 $"baseVertex={subMeshDescriptor.baseVertex},firstVertex={subMeshDescriptor.firstVertex}," +
                 $"vertexCount={subMeshDescriptor.vertexCount}\n";
 
-            UnsafeList<MeshletInfo> meshletInfos = meshInfo.MeshletInfos;
+            UnsafeList<MeshletInfo> meshletInfos = meshInfo.SubMeshInfos[0].MeshletInfos;
             foreach (MeshletInfo meshletInfo in meshletInfos)
             {
                 log += $"\tIndexOffset={meshletInfo.IndexOffset},VertexOffset={meshletInfo.VertexOffset},VertexCount={meshletInfo.VertexCount}" +
@@ -121,7 +114,7 @@ public class MeshMergerTest : MonoBehaviour
             {
                 MeshInfo meshInfo = pair.Value;
 
-                UnsafeList<MeshletInfo> meshletInfos = meshInfo.MeshletInfos;
+                UnsafeList<MeshletInfo> meshletInfos = meshInfo.SubMeshInfos[0].MeshletInfos;
                 foreach (MeshletInfo meshletInfo in meshletInfos)
                 {
                     Gizmos.DrawWireCube(meshletInfo.AABB.Center + new Unity.Mathematics.float3(index * 1.5f, 0, 0), meshletInfo.AABB.Extents * 2);

@@ -15,16 +15,16 @@ namespace ZGame.Indirect
     public struct AddItem
     {
         public int CmdID;
-        public UnsafeList<MeshInfo> MeshInfos;
+        public UnsafeList<SubMeshInfo> SubMeshInfos;
         public UnsafeList<IndirectKey> IndirectKeys;
         public float4 LodParam;
         public bool NeedInverse;
         public UnsafeList<float4x4> Matrices;
         public UnsafeList<UnsafeList<float4>> Properties;
 
-        public int LodNum => MeshInfos.Length;
-        public int MaxLod => MeshInfos.Length - 1;
-        public MeshInfo MaxLodMeshInfo => MeshInfos[MaxLod];
+        public int LodNum => SubMeshInfos.Length;
+        public int MaxLod => SubMeshInfos.Length - 1;
+        public SubMeshInfo MaxLodSubMeshInfo => SubMeshInfos[MaxLod];
     }
 
     public unsafe struct IndirectRenderUnmanaged
@@ -163,11 +163,11 @@ namespace ZGame.Indirect
 
                     for (int i = 0; i < indirectCmd.LodNum; ++i)
                     {
-                        var meshInfo = indirectCmd.MeshInfos[i];
+                        var subMeshInfo = indirectCmd.SubMeshInfos[i];
                         var indirectKey = indirectCmd.IndirectKeys[i];
 
                         IndirectBatch indirectBatch = Unmanaged->IndirectMap[indirectKey];
-                        indirectBatch.MeshletCount -= indirectCmd.InstanceCount * meshInfo.MeshletLength;
+                        indirectBatch.MeshletCount -= indirectCmd.InstanceCount * subMeshInfo.MeshletLength;
 
                         if (indirectBatch.MeshletCount == 0)
                         {
@@ -179,7 +179,7 @@ namespace ZGame.Indirect
                             Unmanaged->IndirectMap[indirectKey] = indirectBatch;
                         }
 
-                        Unmanaged->MeshletCount -= indirectCmd.InstanceCount * meshInfo.MeshletLength;
+                        Unmanaged->MeshletCount -= indirectCmd.InstanceCount * subMeshInfo.MeshletLength;
                     }
 
                     Unmanaged->InstanceIndexAllocator.Free(indirectCmd.InstanceIndexChunk);
@@ -217,8 +217,8 @@ namespace ZGame.Indirect
 
                 {
                     int meshletCount = 0;
-                    foreach (var meshInfo in addItem.MeshInfos)
-                        meshletCount += instanceCount * meshInfo.MeshletLength;
+                    foreach (var subMeshInfo in addItem.SubMeshInfos)
+                        meshletCount += instanceCount * subMeshInfo.MeshletLength;
 
                     if (meshletCount + Unmanaged->MeshletCount > Unmanaged->Setting.MeshletCapacity)
                     {
@@ -229,7 +229,7 @@ namespace ZGame.Indirect
 
                 for (int i = 0; i < addItem.LodNum; ++i)
                 {
-                    var meshInfo = addItem.MeshInfos[i];
+                    var subMeshInfo = addItem.SubMeshInfos[i];
                     var indirectKey = addItem.IndirectKeys[i];
 
                     if (!Unmanaged->IndirectMap.TryGetValue(indirectKey, out var indirectBatch))
@@ -256,7 +256,7 @@ namespace ZGame.Indirect
                         };
                     }
 
-                    int meshletCount = instanceCount * meshInfo.MeshletLength;
+                    int meshletCount = instanceCount * subMeshInfo.MeshletLength;
                     indirectBatch.MeshletCount += meshletCount;
 
                     Unmanaged->IndirectMap[indirectKey] = indirectBatch;
@@ -299,7 +299,7 @@ namespace ZGame.Indirect
                 }
 
                 int startIndex = (int)instanceIndexChunk.AddressOf();
-                AABB aabbLocal = addItem.MaxLodMeshInfo.AABB;
+                AABB aabbLocal = addItem.MaxLodSubMeshInfo.AABB;
 
                 for (int i = 0; i < instanceCount; i++)
                 {
@@ -383,11 +383,11 @@ namespace ZGame.Indirect
             UnsafeList<int2> meshletIndexInfos = new UnsafeList<int2>(Utility.c_MaxLodNum, Allocator.Temp);
             for (int iLod = 0; iLod < addItem.LodNum; ++iLod)
             {
-                var meshInfo = addItem.MeshInfos[iLod];
+                var subMeshInfo = addItem.SubMeshInfos[iLod];
                 var indirectKey = addItem.IndirectKeys[iLod];
 
                 int indirectID = Unmanaged->IndirectMap[indirectKey].IndirectID;
-                int meshletCount = instanceCount * meshInfo.MeshletLength;
+                int meshletCount = instanceCount * subMeshInfo.MeshletLength;
 
                 Chunk meshletIndexChunk = Unmanaged->MeshletIndexAllocator.Alloc((UInt32)meshletCount);
                 if (meshletIndexChunk == Chunk.s_InvalidChunk)
@@ -403,7 +403,7 @@ namespace ZGame.Indirect
                     int instanceIndex = i % instanceCount;
                     int meshletIndex = i / instanceCount;
 
-                    MeshletInfo meshletInfo = meshInfo.MeshletInfos[meshletIndex];
+                    MeshletInfo meshletInfo = subMeshInfo.MeshletInfos[meshletIndex];
                     AABB aabb = AABB.Transform(matrices[instanceIndex], meshletInfo.AABB);
 
                     Unmanaged->MeshletDescriptorArray[startIndex + i] = new MeshletDescriptor()
@@ -429,15 +429,15 @@ namespace ZGame.Indirect
                 }
 
                 meshletIndexChunks.Add(meshletIndexChunk);
-                meshletIndexInfos.Add(new int2(startIndex, meshInfo.MeshletLength));
+                meshletIndexInfos.Add(new int2(startIndex, subMeshInfo.MeshletLength));
             }
 
             for (int i = addItem.LodNum; i < Utility.c_MaxLodNum; ++i)
                 meshletIndexInfos.Add(new int2(0, 0));
 
-            UnsafeList<MeshInfo> meshInfos = new UnsafeList<MeshInfo>(addItem.MeshInfos.Length, Allocator.Persistent);
-            for (int i = 0; i < addItem.MeshInfos.Length; ++i)
-                meshInfos.Add(addItem.MeshInfos[i]);
+            UnsafeList<SubMeshInfo> subMeshInfos = new UnsafeList<SubMeshInfo>(addItem.SubMeshInfos.Length, Allocator.Persistent);
+            for (int i = 0; i < addItem.SubMeshInfos.Length; ++i)
+                subMeshInfos.Add(addItem.SubMeshInfos[i]);
 
             UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(addItem.IndirectKeys.Length, Allocator.Persistent);
             for (int i = 0; i < addItem.IndirectKeys.Length; ++i)
@@ -445,7 +445,7 @@ namespace ZGame.Indirect
 
             IndirectCmd indirectCmd = new IndirectCmd
             {
-                MeshInfos = meshInfos,
+                SubMeshInfos = subMeshInfos,
                 IndirectKeys = indirectKeys,
                 InstanceCount = instanceCount,
                 InstanceIndexChunk = instanceIndexChunk,
@@ -483,7 +483,7 @@ namespace ZGame.Indirect
         {
             foreach (var addItem in Unmanaged->AddCache)
             {
-                addItem.MeshInfos.Dispose();
+                addItem.SubMeshInfos.Dispose();
                 addItem.IndirectKeys.Dispose();
                 addItem.Matrices.Dispose();
                 for (int i = 0; i < addItem.Properties.Length; ++i)

@@ -121,14 +121,7 @@ public class IndirectRenderTest : MonoBehaviour
         _meshIDs = new int[Meshes.Length];
         for (int i = 0; i < Meshes.Length; ++i)
         {
-            MeshKey meshKey = new MeshKey()
-            {
-                Mesh = Meshes[i],
-                SubmeshIndex = 0,
-                FlipZ = false,
-            };
-
-            _meshIDs[i] = _indirectRender.RegisterMesh(meshKey);
+            _meshIDs[i] = _indirectRender.RegisterMesh(Meshes[i]);
         }
 
         _materialIDs = new int[Materials.Length];
@@ -201,6 +194,8 @@ public class IndirectRenderTest : MonoBehaviour
 
         IndirectKey indirectKey = new IndirectKey()
         {
+            MeshID = meshID,
+            SubmeshIndex = 0,
             MaterialID = materialID,
             Layer = (byte)indirectLayer,
             ReceiveShadows = true,
@@ -238,11 +233,10 @@ public class IndirectRenderTest : MonoBehaviour
             properties.Add(float4s);
         }
 
-        UnsafeList<int> meshIDs = new UnsafeList<int>(1, Allocator.TempJob) { meshID };
         UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(1, Allocator.TempJob) { indirectKey };
         float4 lodParam = new float4(0.25f, 0.125f, 0.0625f, 0.03125f);
 
-        int id = _indirectRender.AddBatch(meshIDs, indirectKeys, lodParam, false, matrices, properties);
+        int id = _indirectRender.AddBatch(indirectKeys, lodParam, false, matrices, properties);
 
         _batchInfos.Add(new BatchInfo() { ID = id, Height = height, IndirectKey = indirectKey });
     }
@@ -331,7 +325,6 @@ public class IndirectRenderTest : MonoBehaviour
         int indirectLayer = LayerMask.NameToLayer("IndirectLayer");
         float height = 1;
 
-        UnsafeList<int> meshIDs = new UnsafeList<int>(3, Allocator.TempJob) { _meshIDs[0], _meshIDs[1], _meshIDs[2] };
         UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(3, Allocator.TempJob);
         indirectKeys.Length = 3;
 
@@ -339,6 +332,8 @@ public class IndirectRenderTest : MonoBehaviour
         {
             indirectKeys[i] = new IndirectKey
             {
+                MeshID = _meshIDs[i],
+                SubmeshIndex = 0,
                 MaterialID = _materialIDs[0],
                 Layer = (byte)indirectLayer,
                 ReceiveShadows = true,
@@ -379,7 +374,7 @@ public class IndirectRenderTest : MonoBehaviour
 
         float4 lodParam = new float4(0.25f, 0.125f, 0.0625f, 0.03125f);
 
-        int id = _indirectRender.AddBatch(meshIDs, indirectKeys, lodParam, false, matrices, properties);
+        int id = _indirectRender.AddBatch(indirectKeys, lodParam, false, matrices, properties);
     }
 
 #if UNITY_EDITOR

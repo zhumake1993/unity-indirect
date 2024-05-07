@@ -95,47 +95,6 @@ namespace ZGame.Indirect
         }
     }
 
-    public struct MeshKey : IEquatable<MeshKey>
-    {
-        public Mesh Mesh;
-        public int SubmeshIndex;
-        public bool FlipZ;
-
-        public static MeshKey s_Invalid = new MeshKey { Mesh = null, SubmeshIndex = 0, FlipZ = false };
-
-        public override int GetHashCode()
-        {
-            return Mesh.GetHashCode()
-                ^ SubmeshIndex.GetHashCode()
-                ^ FlipZ.GetHashCode();
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj is MeshKey)
-                return Equals((MeshKey)obj);
-
-            return false;
-        }
-
-        public bool Equals(MeshKey other)
-        {
-            return Mesh == other.Mesh
-                && SubmeshIndex == other.SubmeshIndex
-                && FlipZ == other.FlipZ;
-        }
-
-        public static bool operator ==(MeshKey a, MeshKey b)
-        {
-            return a.Equals(b);
-        }
-
-        public static bool operator !=(MeshKey a, MeshKey b)
-        {
-            return !a.Equals(b);
-        }
-    }
-
     public struct MeshletInfo
     {
         public int IndexOffset;
@@ -144,13 +103,13 @@ namespace ZGame.Indirect
         public AABB AABB;
     }
 
-    public struct MeshInfo
+    public struct SubMeshInfo
     {
         public UnsafeList<MeshletInfo> MeshletInfos;
         public AABB AABB;
 
         public int MeshletLength => MeshletInfos.Length;
-        public static MeshInfo s_Invalid = new MeshInfo { MeshletInfos = new UnsafeList<MeshletInfo> { Ptr = null } };
+        public static SubMeshInfo s_Invalid = new SubMeshInfo { MeshletInfos = new UnsafeList<MeshletInfo> { Ptr = null } };
         public bool IsValid => MeshletInfos.IsCreated && MeshletInfos.Length > 0;
 
         public void Dispose()
@@ -160,44 +119,22 @@ namespace ZGame.Indirect
         }
     }
 
-    public struct MeshSliceInfo : IEquatable<MeshSliceInfo>
+    public struct MeshInfo
     {
-        public uint IndexCountPerInstance;
-        public uint StartIndex;
-        public uint BaseVertexIndex;
+        public UnsafeList<SubMeshInfo> SubMeshInfos;
 
-        public static MeshSliceInfo s_Invalid = new MeshSliceInfo { IndexCountPerInstance = 0, StartIndex = 0, BaseVertexIndex = 0 };
+        public int SubMeshCount => SubMeshInfos.Length;
+        public static MeshInfo s_Invalid = new MeshInfo { SubMeshInfos = new UnsafeList<SubMeshInfo> { Ptr = null } };
+        public bool IsValid => SubMeshInfos.IsCreated && SubMeshInfos.Length > 0;
 
-        public override int GetHashCode()
+        public void Dispose()
         {
-            return IndexCountPerInstance.GetHashCode()
-                ^ StartIndex.GetHashCode()
-                ^ BaseVertexIndex.GetHashCode();
-        }
-
-        public override bool Equals(object obj)
-        {
-            if (obj is MeshSliceInfo)
-                return Equals((MeshSliceInfo)obj);
-
-            return false;
-        }
-
-        public bool Equals(MeshSliceInfo other)
-        {
-            return IndexCountPerInstance == other.IndexCountPerInstance
-                && StartIndex == other.StartIndex
-                && BaseVertexIndex == other.BaseVertexIndex;
-        }
-
-        public static bool operator ==(MeshSliceInfo a, MeshSliceInfo b)
-        {
-            return a.Equals(b);
-        }
-
-        public static bool operator !=(MeshSliceInfo a, MeshSliceInfo b)
-        {
-            return !a.Equals(b);
+            if (SubMeshInfos.IsCreated)
+            {
+                foreach (var subMeshInfo in SubMeshInfos)
+                    subMeshInfo.Dispose();
+                SubMeshInfos.Dispose();
+            }
         }
     }
 
@@ -216,17 +153,32 @@ namespace ZGame.Indirect
 
     public struct IndirectKey : IEquatable<IndirectKey>
     {
+        public int MeshID;
+        public int SubmeshIndex;
         public int MaterialID;
         public byte Layer;
         public bool ReceiveShadows;
         public ShadowCastingMode ShadowCastingMode;
 
+        int _hashCache;
+
         public override int GetHashCode()
         {
-            return MaterialID.GetHashCode()
-                ^ Layer.GetHashCode()
-                ^ ReceiveShadows.GetHashCode()
-                ^ ((int)(ShadowCastingMode)).GetHashCode();
+            if (_hashCache != 0)
+                return _hashCache;
+
+            unchecked
+            {
+                int retHash = (int)(2166136261);
+                retHash = (retHash * 16777619) ^ MeshID.GetHashCode();
+                retHash = (retHash * 16777619) ^ SubmeshIndex.GetHashCode();
+                retHash = (retHash * 16777619) ^ MaterialID.GetHashCode();
+                retHash = (retHash * 16777619) ^ Layer.GetHashCode();
+                retHash = (retHash * 16777619) ^ ReceiveShadows.GetHashCode();
+                retHash = (retHash * 16777619) ^ ((int)(ShadowCastingMode)).GetHashCode();
+                _hashCache = retHash;
+                return _hashCache;
+            }
         }
 
         public override bool Equals(object obj)
@@ -239,7 +191,9 @@ namespace ZGame.Indirect
 
         public bool Equals(IndirectKey other)
         {
-            return MaterialID == other.MaterialID
+            return MeshID == other.MeshID
+                && SubmeshIndex == other.SubmeshIndex
+                && MaterialID == other.MaterialID
                 && Layer == other.Layer
                 && ReceiveShadows == other.ReceiveShadows
                 && ShadowCastingMode == other.ShadowCastingMode;
@@ -264,19 +218,19 @@ namespace ZGame.Indirect
 
     public struct IndirectCmd
     {
-        public UnsafeList<MeshInfo> MeshInfos;
+        public UnsafeList<SubMeshInfo> SubMeshInfos;
         public UnsafeList<IndirectKey> IndirectKeys;
         public int InstanceCount;
         public Chunk InstanceIndexChunk;
         public Chunk InstanceDataChunk;
         public UnsafeList<Chunk> MeshletIndexChunks;
 
-        public int LodNum => MeshInfos.Length;
-        public int MaxLod => MeshInfos.Length - 1;
+        public int LodNum => SubMeshInfos.Length;
+        public int MaxLod => SubMeshInfos.Length - 1;
 
         public void Dispose()
         {
-            MeshInfos.Dispose();
+            SubMeshInfos.Dispose();
             IndirectKeys.Dispose();
             MeshletIndexChunks.Dispose();
         }
