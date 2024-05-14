@@ -19,7 +19,7 @@ public struct BatchInfo
 {
     public int ID;
     public int Height;
-    public IndirectKey IndirectKey;
+    public RenderData RenderData;
 }
 
 public class IndirectRenderTest : MonoBehaviour
@@ -186,7 +186,7 @@ public class IndirectRenderTest : MonoBehaviour
 
         int indirectLayer = LayerMask.NameToLayer("IndirectLayer");
 
-        IndirectKey indirectKey = new IndirectKey()
+        RenderData renderData = new RenderData()
         {
             MeshID = meshID,
             SubmeshIndex = 0,
@@ -227,12 +227,12 @@ public class IndirectRenderTest : MonoBehaviour
             properties.Add(float4s);
         }
 
-        UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(1, Allocator.TempJob) { indirectKey };
+        UnsafeList<RenderData> renderDatas = new UnsafeList<RenderData>(1, Allocator.TempJob) { renderData };
         float4 lodParam = new float4(0.25f, 0.125f, 0.0625f, 0.03125f);
 
-        int id = _indirectRender.AddBatch(indirectKeys, lodParam, false, matrices, properties);
+        int id = _indirectRender.AddBatch(renderDatas, lodParam, false, matrices, properties);
 
-        _batchInfos.Add(new BatchInfo() { ID = id, Height = height, IndirectKey = indirectKey });
+        _batchInfos.Add(new BatchInfo() { ID = id, Height = height, RenderData = renderData });
     }
 
     void AddRandom()
@@ -263,7 +263,7 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            Add(1, 0, 1000, 1);
+            Add(0, 0, 1, 1);
             //for (int i = 0; i < MaxHeight; ++i) Add(0, 0, MaxInstanceCount, i);
         }
 
@@ -336,12 +336,12 @@ public class IndirectRenderTest : MonoBehaviour
         int indirectLayer = LayerMask.NameToLayer("IndirectLayer");
         float height = 1;
 
-        UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(3, Allocator.TempJob);
-        indirectKeys.Length = 3;
+        UnsafeList<RenderData> renderDatas = new UnsafeList<RenderData>(3, Allocator.TempJob);
+        renderDatas.Length = 3;
 
         for (int i = 0; i < 3; ++i)
         {
-            indirectKeys[i] = new IndirectKey
+            renderDatas[i] = new RenderData
             {
                 MeshID = _meshIDs[i],
                 SubmeshIndex = 0,
@@ -385,7 +385,7 @@ public class IndirectRenderTest : MonoBehaviour
 
         float4 lodParam = new float4(0.25f, 0.125f, 0.0625f, 0.03125f);
 
-        int id = _indirectRender.AddBatch(indirectKeys, lodParam, false, matrices, properties);
+        int id = _indirectRender.AddBatch(renderDatas, lodParam, false, matrices, properties);
     }
 
 #if UNITY_EDITOR

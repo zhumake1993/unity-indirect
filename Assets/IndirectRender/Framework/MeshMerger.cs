@@ -31,11 +31,16 @@ namespace ZGame.Indirect
 
             _meshInfos = new List<MeshInfo>();
 
-            _indexAllocator.Init(128, (uint)_indexCapacity, 1);
-            _vertexAllocator.Init(1024, (uint)_vertexCapacity, 1);
+            uint minIndexCount = Utility.NextPowerOfTwo((UInt32)(meshletTriangleCount * 3));
+            uint maxIndexCount = Utility.NextPowerOfTwo((UInt32)indexCapacity);
+            uint minVertexCount = Utility.NextPowerOfTwo((UInt32)(meshletTriangleCount * 3));
+            uint maxVertexCount = Utility.NextPowerOfTwo((UInt32)vertexCapacity);
 
-            _indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _indexCapacity / sizeof(int), sizeof(int));
-            _vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _vertexCapacity / sizeof(int), sizeof(int));
+            _indexAllocator.Init(minIndexCount, maxIndexCount, 1);
+            _vertexAllocator.Init(minVertexCount, maxVertexCount, 1);
+
+            _indexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, (int)maxIndexCount, sizeof(int));
+            _vertexBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, (int)maxVertexCount, IndirectVertexData.c_Size);
         }
 
         public void Dispose()
@@ -151,24 +156,24 @@ namespace ZGame.Indirect
                         meshletIndices.Add(0);
                     }
 
-                    Chunk indexChunk = _indexAllocator.Alloc((UInt32)(meshletIndexCount * sizeof(int)));
+                    Chunk indexChunk = _indexAllocator.Alloc((UInt32)(meshletIndexCount));
                     if (indexChunk == Chunk.s_InvalidChunk)
                     {
                         Utility.LogErrorBurst($"index allocation failed, index count={meshletIndexCount}");
                         return MeshInfo.s_Invalid;
                     }
 
-                    int startIndex = (int)indexChunk.AddressOf() / sizeof(int);
+                    int startIndex = (int)indexChunk.AddressOf();
                     _indexBuffer.SetData(meshletIndices.AsArray(), 0, startIndex, meshletIndexCount);
 
-                    Chunk vertexChunk = _vertexAllocator.Alloc((UInt32)(meshletVertices.Length * IndirectVertexData.c_Size));
+                    Chunk vertexChunk = _vertexAllocator.Alloc((UInt32)(meshletVertices.Length));
                     if (vertexChunk == Chunk.s_InvalidChunk)
                     {
                         Utility.LogErrorBurst($"vertex allocation failed, vertex count={meshletVertices.Length}");
                         return MeshInfo.s_Invalid;
                     }
 
-                    int startVertex = (int)vertexChunk.AddressOf() / IndirectVertexData.c_Size;
+                    int startVertex = (int)vertexChunk.AddressOf();
                     _vertexBuffer.SetData(meshletVertices.AsArray(), 0, startVertex, meshletVertices.Length);
 
                     MeshletInfo meshletInfo = new MeshletInfo()

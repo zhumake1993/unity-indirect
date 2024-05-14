@@ -165,10 +165,18 @@ namespace ZGame.Indirect
         }
     }
 
-    public struct IndirectKey : IEquatable<IndirectKey>
+    public struct RenderData
     {
         public int MeshID;
         public int SubmeshIndex;
+        public int MaterialID;
+        public byte Layer;
+        public bool ReceiveShadows;
+        public ShadowCastingMode ShadowCastingMode;
+    }
+
+    public struct IndirectKey : IEquatable<IndirectKey>
+    {
         public int MaterialID;
         public byte Layer;
         public bool ReceiveShadows;
@@ -184,8 +192,6 @@ namespace ZGame.Indirect
             unchecked
             {
                 int retHash = (int)(2166136261);
-                retHash = (retHash * 16777619) ^ MeshID.GetHashCode();
-                retHash = (retHash * 16777619) ^ SubmeshIndex.GetHashCode();
                 retHash = (retHash * 16777619) ^ MaterialID.GetHashCode();
                 retHash = (retHash * 16777619) ^ Layer.GetHashCode();
                 retHash = (retHash * 16777619) ^ ReceiveShadows.GetHashCode();
@@ -205,9 +211,7 @@ namespace ZGame.Indirect
 
         public bool Equals(IndirectKey other)
         {
-            return MeshID == other.MeshID
-                && SubmeshIndex == other.SubmeshIndex
-                && MaterialID == other.MaterialID
+            return MaterialID == other.MaterialID
                 && Layer == other.Layer
                 && ReceiveShadows == other.ReceiveShadows
                 && ShadowCastingMode == other.ShadowCastingMode;

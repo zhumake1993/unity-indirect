@@ -141,19 +141,19 @@ namespace ZGame.Indirect
             return _assetManager.GetMaterial(id);
         }
 
-        bool CheckBatch(UnsafeList<IndirectKey> indirectKeys, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        bool CheckBatch(UnsafeList<RenderData> renderDatas, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
-            for (int i = 0; i < indirectKeys.Length; ++i)
+            for (int i = 0; i < renderDatas.Length; ++i)
             {
-                if (indirectKeys[i].MeshID < 0)
+                if (renderDatas[i].MeshID < 0)
                 {
-                    Utility.LogError($"indirectKeys[{i}].MeshID < 0");
+                    Utility.LogError($"renderDatas[{i}].MeshID < 0");
                     return false;
                 }
 
-                if (indirectKeys[i].MaterialID < 0)
+                if (renderDatas[i].MaterialID < 0)
                 {
-                    Utility.LogError($"indirectKeys[{i}].MaterialID < 0");
+                    Utility.LogError($"renderDatas[{i}].MaterialID < 0");
                     return false;
                 }
             }
@@ -161,25 +161,39 @@ namespace ZGame.Indirect
             return true;
         }
 
-        public int AddBatch(UnsafeList<IndirectKey> indirectKeys, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
+        public int AddBatch(UnsafeList<RenderData> renderDatas, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
-            if (!CheckBatch(indirectKeys, matrices, properties))
+            if (!CheckBatch(renderDatas, matrices, properties))
             {
                 return -1;
             }
 
-            foreach (var indirectKey in indirectKeys)
+            foreach (var renderData in renderDatas)
             {
-                _assetManager.AddShaderLayout(indirectKey.MaterialID, new ShaderLayout
+                _assetManager.AddShaderLayout(renderData.MaterialID, new ShaderLayout
                 {
                     NeedInverse = needInverse,
                     PeopertyCount = properties.Length
                 });
             }
 
-            UnsafeList<SubMeshInfo> subMeshInfos = new UnsafeList<SubMeshInfo>(indirectKeys.Length, Allocator.TempJob);
-            for (int i = 0; i < indirectKeys.Length; ++i)
-                subMeshInfos.Add(_assetManager.GetMeshInfo(indirectKeys[i].MeshID, indirectKeys[i].SubmeshIndex));
+            UnsafeList<SubMeshInfo> subMeshInfos = new UnsafeList<SubMeshInfo>(renderDatas.Length, Allocator.TempJob);
+            for (int i = 0; i < renderDatas.Length; ++i)
+                subMeshInfos.Add(_assetManager.GetMeshInfo(renderDatas[i].MeshID, renderDatas[i].SubmeshIndex));
+
+            UnsafeList<IndirectKey> indirectKeys = new UnsafeList<IndirectKey>(renderDatas.Length, Allocator.TempJob);
+            for (int i = 0; i < renderDatas.Length; ++i)
+            {
+                indirectKeys.Add(new IndirectKey
+                {
+                    MaterialID = renderDatas[i].MaterialID,
+                    Layer = renderDatas[i].Layer,
+                    ReceiveShadows = renderDatas[i].ReceiveShadows,
+                    ShadowCastingMode = renderDatas[i].ShadowCastingMode,
+                });
+            }
+
+            renderDatas.Dispose();
 
             AddItem addItem = new AddItem
             {
