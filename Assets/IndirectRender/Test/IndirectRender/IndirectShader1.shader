@@ -47,6 +47,11 @@ Shader"GPU Driven/IndirectShader1"
             struct Attributes
             {
                 float4 positionOS : POSITION;
+
+                #if ZGAME_INDIRECT
+                uint svVertexID : SV_VertexID;
+                uint svInstanceID : SV_InstanceID;
+                #endif
                 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -59,21 +64,17 @@ Shader"GPU Driven/IndirectShader1"
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
             
-            #if ZGAME_INDIRECT
-            Varyings vert(uint svVertexID : SV_VertexID, uint svInstanceID : SV_InstanceID)
-            #else
             Varyings vert(Attributes input)
-            #endif
             {
                 Varyings output = (Varyings)0;
 
                 #if ZGAME_INDIRECT
                 
-                ZGmae_Indirect_Setup(svVertexID, svInstanceID);
+                ZGmae_Indirect_Setup(input.svVertexID, input.svInstanceID);
 
                 IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
 
-                Attributes input = (Attributes)0;
+                input = (Attributes)0;
                 input.positionOS = indirectVertexData.position;
 
                 #endif
@@ -123,6 +124,11 @@ Shader"GPU Driven/IndirectShader1"
             struct Attributes
             {
                 float4 positionOS : POSITION;
+
+                #if ZGAME_INDIRECT
+                uint svVertexID : SV_VertexID;
+                uint svInstanceID : SV_InstanceID;
+                #endif
                 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -133,22 +139,18 @@ Shader"GPU Driven/IndirectShader1"
 
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
-
-            #if ZGAME_INDIRECT
-            Varyings vert(uint svVertexID : SV_VertexID, uint svInstanceID : SV_InstanceID)
-            #else
+			
             Varyings vert(Attributes input)
-            #endif
             {
                 Varyings output;
 
                 #if ZGAME_INDIRECT
                 
-                ZGmae_Indirect_Setup(svVertexID, svInstanceID);
+                ZGmae_Indirect_Setup(input.svVertexID, input.svInstanceID);
 
                 IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
 
-                Attributes input = (Attributes)0;
+                input = (Attributes)0;
                 input.positionOS = indirectVertexData.position;
 
                 #endif
