@@ -63,8 +63,10 @@ namespace ZGame.Indirect
             _mpb.SetBuffer(s_indirectVertexBufferID, _meshMerger.GetVertexBuffer());
             _mpb.SetBuffer(s_indirectIndexBufferID, _meshMerger.GetIndexBuffer());
 
+#if ZGAME_BRG_INDIRECT
             _brg.SetIndirect();
             _brg.SetIndirectProperties(_mpb);
+#endif
 
             RenderPipelineManager.beginContextRendering += OnBeginContextRendering;
             RenderPipelineManager.endContextRendering += OnEndContextRendering;
@@ -164,7 +166,12 @@ namespace ZGame.Indirect
         public int AddBatch(UnsafeList<RenderData> renderDatas, float4 lodParam, bool needInverse, UnsafeList<float4x4> matrices, UnsafeList<UnsafeList<float4>> properties)
         {
             if (!CheckBatch(renderDatas, matrices, properties))
+                return -1;
+
+            int cmdID = _unmanaged->CmdIDGenerator.GetID();
+            if (cmdID >= _unmanaged->Setting.CmdCapacity)
             {
+                Utility.LogError($"cmdID({cmdID}) >= CmdCapacity({_unmanaged->Setting.CmdCapacity})");
                 return -1;
             }
 
@@ -197,7 +204,7 @@ namespace ZGame.Indirect
 
             AddItem addItem = new AddItem
             {
-                CmdID = _unmanaged->CmdIDGenerator.GetID(),
+                CmdID = cmdID,
                 SubMeshInfos = subMeshInfos,
                 IndirectKeys = indirectKeys,
                 LodParam = lodParam,
@@ -220,6 +227,29 @@ namespace ZGame.Indirect
             _unmanaged->RemoveCache.Add(id);
         }
 
+        public bool GetInstanceEnable(int cmdID, int index)
+        {
+            if (_unmanaged->EnableCache.TryGetValue(new int2(cmdID, index), out bool enable))
+                return enable;
+
+            if (_unmanaged->CmdMap.ContainsKey(cmdID))
+            {
+                CmdDescriptor cmdDescriptor = _unmanaged->CmdDescriptorArray[cmdID];
+                if (index < cmdDescriptor.InstanceCount)
+                {
+                    return _unmanaged->InstanceDescriptorArray[cmdDescriptor.InstanceStartIndex + index].Enable != 0;
+                }
+            }
+
+            Utility.LogError($"GetInstanceEnable failed, cmdID={cmdID}, index={index}");
+            return false;
+        }
+
+        public void SetInstanceEnable(int cmdID, int index, bool enable)
+        {
+            _unmanaged->EnableCache[new int2(cmdID, index)] = enable;
+        }
+
         bool ShouldDraw()
         {
             return _draw && _unmanaged->CmdMap.Count > 0;
@@ -234,44 +264,26 @@ namespace ZGame.Indirect
 
                 if (_unmanaged->RemoveCache.Length > 0)
                 {
-                    var flushRemoveJob = new FlushRemoveJob
-                    {
-                        Unmanaged = _unmanaged,
-                        QuadTree = _quadTree,
-                    };
-                    jobHandle = flushRemoveJob.Schedule(jobHandle);
-
+                    jobHandle = new FlushRemoveJob { Unmanaged = _unmanaged, QuadTree = _quadTree, }.Schedule(jobHandle);
                     jobHandle = _quadTree.DispatchDeleteJob(_unmanaged->QuadTreeIndexToRemoveSet, jobHandle);
                 }
 
                 if (_unmanaged->AddCache.Length > 0)
                 {
-                    var preFlushAddJob = new PreFlushAddJob
-                    {
-                        Unmanaged = _unmanaged,
-                    };
-                    jobHandle = preFlushAddJob.Schedule(jobHandle);
-
-                    var flushAddJob = new FlushAddJob
-                    {
-                        Unmanaged = _unmanaged,
-                    };
-                    jobHandle = flushAddJob.Schedule(_unmanaged->AddCache.Length, 1, jobHandle);
-
-                    var postFlushAddJob = new PostFlushAddJob
-                    {
-                        Unmanaged = _unmanaged,
-                    };
-                    jobHandle = postFlushAddJob.Schedule(jobHandle);
-
+                    jobHandle = new PreFlushAddJob { Unmanaged = _unmanaged, }.Schedule(jobHandle);
+                    jobHandle = new FlushAddJob { Unmanaged = _unmanaged, }.Schedule(_unmanaged->AddCache.Length, 1, jobHandle);
+                    jobHandle = new PostFlushAddJob { Unmanaged = _unmanaged, }.Schedule(jobHandle);
                     jobHandle = _quadTree.DispatchAddJob(_unmanaged->QuadTreeAABBInfos, jobHandle);
                 }
 
-                var updateBatchDescriptorJob = new UpdateBatchDescriptorJob
+                if (!_unmanaged->EnableCache.IsEmpty)
                 {
-                    Unmanaged = _unmanaged,
-                };
-                _dispatchJobHandle = updateBatchDescriptorJob.Schedule(jobHandle);
+                    jobHandle = new FlushEnableJob { Unmanaged = _unmanaged, }.Schedule(jobHandle);
+                    jobHandle = new FlushRemoveJob { Unmanaged = _unmanaged, QuadTree = _quadTree, }.Schedule(jobHandle);
+                    jobHandle = _quadTree.DispatchDeleteJob(_unmanaged->QuadTreeIndexToRemoveSet, jobHandle);
+                }
+
+                _dispatchJobHandle = new UpdateBatchDescriptorJob { Unmanaged = _unmanaged, }.Schedule(jobHandle);
             }
         }
 
@@ -297,7 +309,9 @@ namespace ZGame.Indirect
                 _bufferManager.CmdDescriptorBuffer.SetData(_unmanaged->CmdDescriptorArray, 0, 0, _unmanaged->MaxCmdID + 1);
                 _bufferManager.BatchDescriptorBuffer.SetData(_unmanaged->BatchDescriptorArray, 0, 0, _unmanaged->MaxIndirectID + 1);
 
+#if ZGAME_BRG_INDIRECT
                 _brg.SetIndirectCmdCount(_unmanaged->IndirectMap.Count);
+#endif
             }
         }
 
@@ -306,6 +320,7 @@ namespace ZGame.Indirect
         {
             using (s_cullingCallbackMarker.Auto())
             {
+#if ZGAME_BRG_INDIRECT
                 _cmd.Clear();
 
                 _cullingHelper.UpdateCullinglanes(ref cullingContext);
@@ -329,7 +344,6 @@ namespace ZGame.Indirect
                         BatchCullingOutputDrawCommands outputDrawCommand = new BatchCullingOutputDrawCommands();
 
                         outputDrawCommand.indirectDrawCommands = MemoryUtility.MallocNoTrack<BatchDrawCommandIndirect>(_unmanaged->IndirectMap.Count, Allocator.TempJob);
-                        outputDrawCommand.indirectDrawCommandCount = _unmanaged->IndirectMap.Count;
 
                         int indirectIndex = 0;
                         foreach (var pair in _unmanaged->IndirectMap)
@@ -338,7 +352,11 @@ namespace ZGame.Indirect
                             IndirectBatch indirectBatch = pair.Value;
 
                             BatchMaterialID batchMaterialID = _assetManager.GetBatchMaterialID(indirectKey.MaterialID);
-                            int indirectID = indirectBatch.IndirectID;
+                            if (batchMaterialID == BatchMaterialID.Null)
+                            {
+                                Utility.LogError($"invalid MaterialID {indirectKey.MaterialID}");
+                                continue;
+                            }
 
                             BatchDrawCommandIndirect indirectCmd = new BatchDrawCommandIndirect()
                             {
@@ -346,7 +364,7 @@ namespace ZGame.Indirect
                                 materialID = batchMaterialID,
                                 visibilityBufferHandle = visibilityBuffer.bufferHandle,
                                 indirectArgsBufferHandle = indirectArgsBuffer.bufferHandle,
-                                indirectArgsOffset = (uint)indirectID,
+                                indirectArgsOffset = (uint)indirectBatch.IndirectID,
                                 renderingLayerMask = 0xffffffff,
                                 layer = indirectKey.Layer,
                                 shadowCastingMode = indirectKey.ShadowCastingMode,
@@ -356,6 +374,7 @@ namespace ZGame.Indirect
 
                             outputDrawCommand.indirectDrawCommands[indirectIndex++] = indirectCmd;
                         }
+                        outputDrawCommand.indirectDrawCommandCount = indirectIndex;
 
                         cullingOutput.drawCommands[0] = outputDrawCommand;
                     }
@@ -393,7 +412,6 @@ namespace ZGame.Indirect
                     BatchCullingOutputDrawCommands outputDrawCommand = new BatchCullingOutputDrawCommands();
 
                     outputDrawCommand.indirectDrawCommands = MemoryUtility.MallocNoTrack<BatchDrawCommandIndirect>(_unmanaged->IndirectMap.Count * splitCount, Allocator.TempJob);
-                    outputDrawCommand.indirectDrawCommandCount = _unmanaged->IndirectMap.Count * splitCount;
                     int indirectIndex = 0;
 
                     for (int iSplit = 0; iSplit < splitCount; ++iSplit)
@@ -411,7 +429,11 @@ namespace ZGame.Indirect
                             IndirectBatch indirectBatch = pair.Value;
 
                             BatchMaterialID batchMaterialID = _assetManager.GetBatchMaterialID(indirectKey.MaterialID);
-                            int indirectID = indirectBatch.IndirectID;
+                            if (batchMaterialID == BatchMaterialID.Null)
+                            {
+                                Utility.LogError($"invalid MaterialID {indirectKey.MaterialID}");
+                                continue;
+                            }
 
                             BatchDrawCommandIndirect indirectCmd = new BatchDrawCommandIndirect()
                             {
@@ -419,7 +441,7 @@ namespace ZGame.Indirect
                                 materialID = batchMaterialID,
                                 visibilityBufferHandle = visibilityBuffer.bufferHandle,
                                 indirectArgsBufferHandle = indirectArgsBuffer.bufferHandle,
-                                indirectArgsOffset = (uint)indirectID,
+                                indirectArgsOffset = (uint)indirectBatch.IndirectID,
                                 renderingLayerMask = 0xffffffff,
                                 layer = indirectKey.Layer,
                                 shadowCastingMode = indirectKey.ShadowCastingMode,
@@ -440,6 +462,7 @@ namespace ZGame.Indirect
 
                         _cmd.EndSample($"Split-{iSplit}");
                     }
+                    outputDrawCommand.indirectDrawCommandCount = indirectIndex;
 
                     cullingOutput.drawCommands[0] = outputDrawCommand;
 
@@ -462,6 +485,7 @@ namespace ZGame.Indirect
                 Graphics.ExecuteCommandBuffer(_cmd);
 
                 _bufferManager.RecycleIndexBuffer();
+#endif
 
                 return new JobHandle();
             }

@@ -7,7 +7,7 @@ struct InstanceDescriptor
     int cmdID;
     
     float3 extents;
-    int pad;
+    int enable;
 };
 
 struct MeshletDescriptor

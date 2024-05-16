@@ -681,7 +681,7 @@ MonoBehaviour:
   Materials:
   - {fileID: 2100000, guid: 3ff1c6b2576b971458fc44e5ca79e4cb, type: 2}
   - {fileID: 2100000, guid: c81763479ba8d3f499495319047a0e00, type: 2}
-  MaxInstanceCount: 10000
+  MaxInstanceCount: 1000
   MaxHeight: 20
   IndirectPipelineCS: {fileID: 7200000, guid: 1b1336db012034a43a3de8e337b632d3, type: 3}
   AdjustDispatchArgCS: {fileID: 7200000, guid: dead25538bc8ba04c9ee263e737f6774, type: 3}

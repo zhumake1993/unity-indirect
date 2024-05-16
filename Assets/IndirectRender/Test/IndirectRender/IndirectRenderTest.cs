@@ -53,6 +53,7 @@ public class IndirectRenderTest : MonoBehaviour
     GUIStyle _style;
 
     public static int s_IndirectPeoperty0 = Shader.PropertyToID("_IndirectPeoperty0");
+    public static int s_IndirectPeoperty1 = Shader.PropertyToID("_IndirectPeoperty1");
 
     void Start()
     {
@@ -137,7 +138,7 @@ public class IndirectRenderTest : MonoBehaviour
         }
         else if (_animationType == AnimationType.EnableDisable)
         {
-            //RandomEnable();
+            RandomEnable();
         }
         else if (_animationType == AnimationType.UpdateMatrix)
         {
@@ -214,6 +215,9 @@ public class IndirectRenderTest : MonoBehaviour
         if (material.HasColor(s_IndirectPeoperty0))
             numFloat4++;
 
+        if (material.HasColor(s_IndirectPeoperty1))
+            numFloat4++;
+
         UnsafeList<UnsafeList<float4>> properties = new UnsafeList<UnsafeList<float4>>(numFloat4, Allocator.TempJob);
         for (int i = 0; i < numFloat4; ++i)
         {
@@ -257,13 +261,31 @@ public class IndirectRenderTest : MonoBehaviour
         _heights.Add(batchInfo.Height);
     }
 
+    void RandomEnable()
+    {
+        if (_batchInfos.Count == 0)
+            return;
+
+        int batchIndex = _random.NextInt(0, _batchInfos.Count);
+        BatchInfo batchInfo = _batchInfos[batchIndex];
+
+        int instanceCount = _indirectRender.GetInstanceCount(batchInfo.ID);
+        if (instanceCount == -1)
+            return;
+
+        int index = _random.NextInt(0, instanceCount);
+
+        bool enable = _indirectRender.GetInstanceEnable(batchInfo.ID, index);
+        _indirectRender.SetInstanceEnable(batchInfo.ID, index, !enable);
+    }
+
     void OnGUI()
     {
         GUILayout.BeginHorizontal();
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            Add(0, 0, 1, 1);
+            Add(0, 3, 1, 1);
             //for (int i = 0; i < MaxHeight; ++i) Add(0, 0, MaxInstanceCount, i);
         }
 

@@ -2,7 +2,12 @@ Shader"GPU Driven/IndirectShader1"
 {
     Properties
     {
-        _IndirectPeoperty0("Color", Color) = (0,0,0,0)
+        // istance property, todo: remove it
+        _IndirectPeoperty0("Color0", Color) = (0,0,0,0)
+        _IndirectPeoperty1("Color1", Color) = (0,0,0,0)
+        
+        // material property
+        _Metallic("Metallic", Range(0.0, 1.0)) = 0.0
     }
 
     SubShader
@@ -37,11 +42,15 @@ Shader"GPU Driven/IndirectShader1"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
-                float4 _IndirectPeoperty0;
+                UNITY_DEFINE_INSTANCED_PROP(half, _Metallic)
             CBUFFER_END
 
             #if ZGAME_INDIRECT
                 #define _IndirectPeoperty0 ZGmae_Indirect_Get_Float4(0)
+                #define _IndirectPeoperty1 ZGmae_Indirect_Get_Float4(1)
+            #else
+                #define _IndirectPeoperty0 float4(0,0,0,0)
+                #define _IndirectPeoperty1 float4(0,0,0,0)
             #endif
 
             struct Attributes
@@ -73,8 +82,7 @@ Shader"GPU Driven/IndirectShader1"
                 ZGmae_Indirect_Setup(input.svVertexID, input.svInstanceID);
 
                 IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
-
-                input = (Attributes)0;
+                
                 input.positionOS = indirectVertexData.position;
 
                 #endif
@@ -82,7 +90,14 @@ Shader"GPU Driven/IndirectShader1"
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(positionWS);
 
+                #if ZGAME_INDIRECT
+                if (input.svVertexID %2 == 0)
+                    output.color = _IndirectPeoperty0;
+                else
+                    output.color = _IndirectPeoperty1;
+                #else
                 output.color = _IndirectPeoperty0;
+                #endif
 
                 return output;
             }
@@ -91,7 +106,7 @@ Shader"GPU Driven/IndirectShader1"
             {
                 UNITY_SETUP_INSTANCE_ID(input);
                 
-                return input.color;
+                return input.color * _Metallic;
             }
             
             ENDHLSL
@@ -149,8 +164,7 @@ Shader"GPU Driven/IndirectShader1"
                 ZGmae_Indirect_Setup(input.svVertexID, input.svInstanceID);
 
                 IndirectVertexData indirectVertexData = ZGame_Indirect_Get_IndirectVertexData();
-
-                input = (Attributes)0;
+                
                 input.positionOS = indirectVertexData.position;
 
                 #endif

@@ -1,6 +1,7 @@
 #define ENABLE_BURST
 
 using System;
+using System.Linq;
 #if ENABLE_BURST
 using Unity.Burst;
 #endif
@@ -49,6 +50,7 @@ namespace ZGame.Indirect
 
         public NativeList<AddItem> AddCache;
         public NativeList<int> RemoveCache;
+        public NativeParallelHashMap<int2, bool> EnableCache;
         public UnsafeList<QuadTreeAABBInfo>* QuadTreeAABBInfos;
         public UnsafeHashSet<int4>* QuadTreeIndexToRemoveSet;
         public UnsafeList<OffsetSizeF4> InstanceDataDirtySegments;
@@ -84,6 +86,7 @@ namespace ZGame.Indirect
 
             AddCache = new NativeList<AddItem>(Allocator.Persistent);
             RemoveCache = new NativeList<int>(Allocator.Persistent);
+            EnableCache = new NativeParallelHashMap<int2, bool>(16, Allocator.Persistent);
             QuadTreeAABBInfos = MemoryUtility.Malloc<UnsafeList<QuadTreeAABBInfo>>(Allocator.Persistent);
             *QuadTreeAABBInfos = new UnsafeList<QuadTreeAABBInfo>(16, Allocator.Persistent);
             QuadTreeIndexToRemoveSet = MemoryUtility.Malloc<UnsafeHashSet<int4>>(Allocator.Persistent);
@@ -123,6 +126,7 @@ namespace ZGame.Indirect
 
             AddCache.Dispose();
             RemoveCache.Dispose();
+            EnableCache.Dispose();
             QuadTreeAABBInfos->Dispose();
             MemoryUtility.Free(QuadTreeAABBInfos, Allocator.Persistent);
             QuadTreeIndexToRemoveSet->Dispose();
@@ -310,7 +314,7 @@ namespace ZGame.Indirect
                         Center = aabb.Center,
                         CmdID = addItem.CmdID,
                         Extents = aabb.Extents,
-                        Pad = 0,
+                        Enable = 1,
                     };
 
                     using (new SimpleSpinLock.AutoLock(Unmanaged->Lock))
@@ -448,6 +452,7 @@ namespace ZGame.Indirect
                 SubMeshInfos = subMeshInfos,
                 IndirectKeys = indirectKeys,
                 InstanceCount = instanceCount,
+                EnableCount = instanceCount,
                 InstanceIndexChunk = instanceIndexChunk,
                 InstanceDataChunk = instanceDataChunk,
                 MeshletIndexChunks = meshletIndexChunks,
@@ -491,6 +496,62 @@ namespace ZGame.Indirect
                 addItem.Properties.Dispose();
             }
             Unmanaged->AddCache.Clear();
+        }
+    }
+
+#if ENABLE_BURST
+    [BurstCompile(CompileSynchronously = true)]
+#endif
+    public unsafe struct FlushEnableJob : IJob
+    {
+        [NativeDisableUnsafePtrRestriction]
+        public IndirectRenderUnmanaged* Unmanaged;
+
+        public void Execute()
+        {
+            foreach (var pair in Unmanaged->EnableCache)
+            {
+                int cmdID = pair.Key.x;
+                int index = pair.Key.y;
+                int enable = pair.Value ? 1 : 0;
+
+                if (Unmanaged->CmdMap.TryGetValue(cmdID, out IndirectCmd indirectCmd))
+                {
+                    int startIndex = (int)indirectCmd.InstanceIndexChunk.AddressOf();
+                    int instanceCount = indirectCmd.InstanceCount;
+                    if (index < instanceCount)
+                    {
+                        var des = Unmanaged->InstanceDescriptorArray[startIndex + index];
+
+                        if (des.Enable == 0 && enable == 1)
+                            indirectCmd.EnableCount++;
+                        else if (des.Enable == 1 && enable == 0)
+                            indirectCmd.EnableCount--;
+
+                        des.Enable = enable;
+                        Unmanaged->InstanceDescriptorArray[startIndex + index] = des;
+
+                        Unmanaged->InstanceDescriptorDirtySegments.Add(new OffsetSize
+                        {
+                            Offset = startIndex + index,
+                            Size = 1
+                        });
+                    }
+
+                    Unmanaged->CmdMap[cmdID] = indirectCmd;
+                }
+            }
+            Unmanaged->EnableCache.Clear();
+
+            NativeList<int> cmdToRemove = new NativeList<int>(Allocator.Temp);
+            foreach (var pair in Unmanaged->CmdMap)
+            {
+                int cmdID = pair.Key;
+                IndirectCmd indirectCmd = pair.Value;
+
+                if (indirectCmd.EnableCount == 0)
+                    Unmanaged->RemoveCache.Add(cmdID);
+            }
         }
     }
 

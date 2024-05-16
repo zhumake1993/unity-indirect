@@ -44,6 +44,9 @@ void InstanceCull (uint3 id : SV_DispatchThreadID)
 
     int instanceIndex = InputIndexBuffer[readIndex].x;
     InstanceDescriptor instanceDescriptor = InstanceDescriptorBuffer[instanceIndex];
+
+    if (instanceDescriptor.enable == 0)
+        return;
     
     AABB aabb;
     aabb.center = instanceDescriptor.center;

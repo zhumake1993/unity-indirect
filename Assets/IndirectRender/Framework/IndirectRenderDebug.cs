@@ -58,6 +58,18 @@ namespace ZGame.Indirect
             set { _indirectPipeline.EnableFrustumCull = value; }
         }
 
+        public int GetInstanceCount(int cmdID)
+        {
+            if (_unmanaged->CmdMap.ContainsKey(cmdID))
+            {
+                return _unmanaged->CmdDescriptorArray[cmdID].InstanceCount;
+            }
+            else
+            {
+                return -1;
+            }
+        }
+
 #if UNITY_EDITOR
         public void DrawQuadTree()
         {

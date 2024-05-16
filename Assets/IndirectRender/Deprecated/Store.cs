@@ -197,3 +197,5 @@ public class StoreForRef
 //                }
 //            }
 //        }
+
+//DynamicRenderManager

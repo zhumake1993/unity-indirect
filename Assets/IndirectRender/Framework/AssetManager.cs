@@ -32,6 +32,9 @@ namespace ZGame.Indirect
 
             _materialIDGenerator = new IDGenerator();
             _materialIDGenerator.Init(256);
+
+            _meshIDGenerator.GetID(); // 0 is reserved for invalid mesh
+            _materialIDGenerator.GetID(); // 0 is reserved for invalid material
         }
 
         public void Dispose()

@@ -239,6 +239,7 @@ namespace ZGame.Indirect
         public UnsafeList<SubMeshInfo> SubMeshInfos;
         public UnsafeList<IndirectKey> IndirectKeys;
         public int InstanceCount;
+        public int EnableCount;
         public Chunk InstanceIndexChunk;
         public Chunk InstanceDataChunk;
         public UnsafeList<Chunk> MeshletIndexChunks;
@@ -260,7 +261,7 @@ namespace ZGame.Indirect
         public int CmdID;
 
         public float3 Extents;
-        public int Pad;
+        public int Enable;
 
         public const int c_SizeF4 = 2;
         public const int c_Size = c_SizeF4 * 16;
