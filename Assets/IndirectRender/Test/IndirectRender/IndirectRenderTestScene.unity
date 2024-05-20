@@ -680,7 +680,9 @@ MonoBehaviour:
   - {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
   Materials:
   - {fileID: 2100000, guid: 3ff1c6b2576b971458fc44e5ca79e4cb, type: 2}
-  - {fileID: 2100000, guid: c81763479ba8d3f499495319047a0e00, type: 2}
+  - {fileID: 2100000, guid: b183d8866f95ca749a8f10fb71d39e3c, type: 2}
+  - {fileID: 2100000, guid: 23597864c8bc8cb4aab2d586281b9363, type: 2}
+  - {fileID: 2100000, guid: d337e29e8bcbd7e44a4e24248848d027, type: 2}
   MaxInstanceCount: 1000
   MaxHeight: 20
   IndirectPipelineCS: {fileID: 7200000, guid: 1b1336db012034a43a3de8e337b632d3, type: 3}

@@ -123,7 +123,7 @@ public class IndirectRenderTest : MonoBehaviour
         for (int i = 0; i < Materials.Length; ++i)
         {
             Materials[i].EnableKeyword("ZGAME_INDIRECT");
-            _materialIDs[i] = _indirectRender.RegisterMaterial(Materials[i]);
+            _materialIDs[i] = _indirectRender.RegisterMaterial(Materials[i], false);
         }
     }
 
@@ -285,7 +285,8 @@ public class IndirectRenderTest : MonoBehaviour
 
         if (GUILayout.Button("Test", GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
         {
-            Add(0, 3, 1, 1);
+            Add(0, 0, 1, 1);
+            Add(0, 1, 1, 5);
             //for (int i = 0; i < MaxHeight; ++i) Add(0, 0, MaxInstanceCount, i);
         }
 

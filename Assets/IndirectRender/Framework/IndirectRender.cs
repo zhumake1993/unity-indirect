@@ -18,6 +18,7 @@ namespace ZGame.Indirect
 
         BatchRendererGroup _brg;
         MeshMerger _meshMerger = new MeshMerger();
+        MaterialMerger _materialMerger = new MaterialMerger();
         AssetManager _assetManager = new AssetManager();
         BufferManager _bufferManager = new BufferManager();
         DispatchHelper _dispatchHelper = new DispatchHelper();
@@ -48,7 +49,8 @@ namespace ZGame.Indirect
 
             _brg = new BatchRendererGroup(OnPerformCulling, IntPtr.Zero);
             _meshMerger.Init(setting.IndexCapacity, setting.VertexCapacity, setting.MeshletTriangleCount);
-            _assetManager.Init(_meshMerger, _brg);
+            _materialMerger.Init();
+            _assetManager.Init(_meshMerger, _materialMerger, _brg);
             _bufferManager.Init(setting);
             _dispatchHelper.Init(adjustDispatchArgCS);
             _indirectPipeline.Init(setting, indirectPipelineCS, _bufferManager, _dispatchHelper);
@@ -96,6 +98,7 @@ namespace ZGame.Indirect
             _dispatchHelper.Dispose();
             _bufferManager.Dispose();
             _assetManager.Dispose();
+            _materialMerger.Dispose();
             _meshMerger.Dispose();
             _brg.Dispose();
 
@@ -128,9 +131,9 @@ namespace ZGame.Indirect
             _assetManager.UnregisterMesh(id);
         }
 
-        public int RegisterMaterial(Material material)
+        public int RegisterMaterial(Material material, bool merge)
         {
-            return _assetManager.RegisterMaterial(material);
+            return _assetManager.RegisterMaterial(material, merge);
         }
 
         public void UnregisterMaterial(int id)

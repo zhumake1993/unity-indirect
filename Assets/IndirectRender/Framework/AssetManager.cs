@@ -8,6 +8,7 @@ namespace ZGame.Indirect
     public class AssetManager
     {
         MeshMerger _meshMerger;
+        MaterialMerger _materialMerger;
 
         IDGenerator _meshIDGenerator;
         Dictionary<Mesh, int> _meshToID = new Dictionary<Mesh, int>();
@@ -15,6 +16,7 @@ namespace ZGame.Indirect
         Dictionary<int, MeshInfo> _idToMeshInfo = new Dictionary<int, MeshInfo>();
 
         IDGenerator _materialIDGenerator;
+
         Dictionary<Material, int> _materialToID = new Dictionary<Material, int>();
         Dictionary<int, Material> _idToMaterial = new Dictionary<int, Material>();
         Dictionary<int, ShaderLayout> _idToShaderLayout = new Dictionary<int, ShaderLayout>();
@@ -22,9 +24,10 @@ namespace ZGame.Indirect
 
         BatchRendererGroup _brg;
 
-        public void Init(MeshMerger meshMerger, BatchRendererGroup brg)
+        public void Init(MeshMerger meshMerger, MaterialMerger materialMerger, BatchRendererGroup brg)
         {
             _meshMerger = meshMerger;
+            _materialMerger = materialMerger;
             _brg = brg;
 
             _meshIDGenerator = new IDGenerator();
@@ -82,7 +85,7 @@ namespace ZGame.Indirect
             }
         }
 
-        public int RegisterMaterial(Material material)
+        public int RegisterMaterial(Material material, bool merge)
         {
             if (_materialToID.TryGetValue(material, out int id))
             {
@@ -90,13 +93,28 @@ namespace ZGame.Indirect
             }
             else
             {
-                if (!material.IsKeywordEnabled("ZGAME_INDIRECT"))
+                int newID = _materialIDGenerator.GetID();
+
+                if (merge)
                 {
-                    Utility.LogError($"material({material.name}) must enable keyword ZGAME_INDIRECT");
-                    return -1;
+                    // when merge the material, the original material does not need to enable the keyword ZGAME_INDIRECT
+
+                    MaterialMergeInfo mmi = _materialMerger.Merge(material);
+
+
+                }
+                else
+                {
+                    if (!material.IsKeywordEnabled("ZGAME_INDIRECT"))
+                    {
+                        Utility.LogError($"material({material.name}) must enable keyword ZGAME_INDIRECT");
+                        return -1;
+                    }
                 }
 
-                int newID = _materialIDGenerator.GetID();
+                
+
+                
                 _materialToID[material] = newID;
                 _idToMaterial[newID] = material;
                 _idToBatchMaterialID[newID] = _brg.RegisterMaterial(material);

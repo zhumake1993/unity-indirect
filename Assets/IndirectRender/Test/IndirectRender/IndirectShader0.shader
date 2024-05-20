@@ -126,6 +126,10 @@ Shader"GPU Driven/IndirectShader0"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+			CBUFFER_START(UnityPerMaterial)
+                UNITY_DEFINE_INSTANCED_PROP(half, _Metallic)
+            CBUFFER_END
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
@@ -161,6 +165,8 @@ Shader"GPU Driven/IndirectShader0"
 
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(positionWS);
+
+                output.positionCS.x += _Metallic * 0.0001f;
 
                 return output;
             }
