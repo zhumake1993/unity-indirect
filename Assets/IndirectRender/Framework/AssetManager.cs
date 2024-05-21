@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -20,7 +21,7 @@ namespace ZGame.Indirect
         Dictionary<Material, int> _materialToID = new Dictionary<Material, int>();
         Dictionary<int, Material> _idToMaterial = new Dictionary<int, Material>();
         Dictionary<int, ShaderLayout> _idToShaderLayout = new Dictionary<int, ShaderLayout>();
-        Dictionary<int, BatchMaterialID> _idToBatchMaterialID = new Dictionary<int, BatchMaterialID>();
+        NativeParallelHashMap<int, BatchMaterialID> _idToBatchMaterialID;
 
         BatchRendererGroup _brg;
 
@@ -38,10 +39,14 @@ namespace ZGame.Indirect
 
             _meshIDGenerator.GetID(); // 0 is reserved for invalid mesh
             _materialIDGenerator.GetID(); // 0 is reserved for invalid material
+
+            _idToBatchMaterialID = new NativeParallelHashMap<int, BatchMaterialID>(16, Allocator.Persistent);
         }
 
         public void Dispose()
         {
+            _idToBatchMaterialID.Dispose();
+
             _meshIDGenerator.Dispose();
             _materialIDGenerator.Dispose();
         }
@@ -177,6 +182,12 @@ namespace ZGame.Indirect
                 Utility.LogError($"BatchMaterialID not found, id={materialID}");
                 return BatchMaterialID.Null;
             }
+        }
+
+        // todo:
+        public NativeParallelHashMap<int, BatchMaterialID> GetIdToBatchMaterialID()
+        {
+            return _idToBatchMaterialID;
         }
 
         public void AddShaderLayout(int materialID, ShaderLayout shaderLayout)

@@ -150,7 +150,7 @@ public class IndirectRenderTest : MonoBehaviour
         }
 
         _indirectRender.EnableQuadTree = QuadTreeCull;
-        _indirectRender.EnableFrustumCull = FrustumCull;
+        //_indirectRender.EnableFrustumCull = FrustumCull;
 
         if (Draw)
         {

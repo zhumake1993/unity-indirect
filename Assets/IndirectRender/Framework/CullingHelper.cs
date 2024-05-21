@@ -2,6 +2,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -50,10 +51,14 @@ namespace ZGame.Indirect
             }
         }
 
+        static readonly ProfilerMarker s_updateCullinglanesMarker = new ProfilerMarker("CullingHelper.UpdateCullinglanes");
         public void UpdateCullinglanes(ref BatchCullingContext cullingContext)
         {
-            CullingPlanes cullingPlanes = CullingUtility.CalculateCullingParameters(ref cullingContext, Allocator.Temp);
-            _packedPlanesArray = CullingUtility.BuildPlanePackets(ref cullingPlanes, Allocator.TempJob);
+            using (s_updateCullinglanesMarker.Auto())
+            {
+                CullingPlanes cullingPlanes = CullingUtility.CalculateCullingParameters(ref cullingContext, Allocator.Temp);
+                _packedPlanesArray = CullingUtility.BuildPlanePackets(ref cullingPlanes, Allocator.TempJob);
+            }
         }
 
         public UnsafeList<PlanePacket4> GetCullinglanes(int splitIndex)
@@ -61,22 +66,26 @@ namespace ZGame.Indirect
             return _packedPlanesArray[splitIndex];
         }
 
-        public void BuildCommandBuffer(CommandBuffer cmd, ComputeShader computeShader, int splitIndex)
+        static readonly ProfilerMarker s_setPlaneParamMarker = new ProfilerMarker("CullingHelper.SetPlaneParam");
+        public void SetPlaneParam(ComputeShader computeShader, int splitIndex)
         {
-            UnsafeList<PlanePacket4> packedPlanes = _packedPlanesArray[splitIndex];
-
-            _cullingParameters[0] = packedPlanes.Length;
-            cmd.SetComputeIntParams(computeShader, s_CullingParametersID, _cullingParameters);
-
-            for (int i = 0; i < packedPlanes.Length; ++i)
+            using (s_setPlaneParamMarker.Auto())
             {
-                _managedPackedPlanes[i * 4 + 0] = packedPlanes[i].Xs;
-                _managedPackedPlanes[i * 4 + 1] = packedPlanes[i].Ys;
-                _managedPackedPlanes[i * 4 + 2] = packedPlanes[i].Zs;
-                _managedPackedPlanes[i * 4 + 3] = packedPlanes[i].Distances;
-            }
+                UnsafeList<PlanePacket4> packedPlanes = _packedPlanesArray[splitIndex];
 
-            cmd.SetComputeVectorArrayParam(computeShader, s_PackedPlanesID, _managedPackedPlanes);
+                _cullingParameters[0] = packedPlanes.Length;
+                computeShader.SetInts(s_CullingParametersID, _cullingParameters);
+
+                for (int i = 0; i < packedPlanes.Length; ++i)
+                {
+                    _managedPackedPlanes[i * 4 + 0] = packedPlanes[i].Xs;
+                    _managedPackedPlanes[i * 4 + 1] = packedPlanes[i].Ys;
+                    _managedPackedPlanes[i * 4 + 2] = packedPlanes[i].Zs;
+                    _managedPackedPlanes[i * 4 + 3] = packedPlanes[i].Distances;
+                }
+
+                computeShader.SetVectorArray(s_PackedPlanesID, _managedPackedPlanes);
+            }
         }
     }
 }

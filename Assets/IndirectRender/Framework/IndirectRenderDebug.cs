@@ -52,11 +52,11 @@ namespace ZGame.Indirect
             set { _quadTree.Enable = value; }
         }
 
-        public bool EnableFrustumCull
-        {
-            get { return _indirectPipeline.EnableFrustumCull; }
-            set { _indirectPipeline.EnableFrustumCull = value; }
-        }
+        //public bool EnableFrustumCull
+        //{
+        //    get { return _indirectPipeline.EnableFrustumCull; }
+        //    set { _indirectPipeline.EnableFrustumCull = value; }
+        //}
 
         public int GetInstanceCount(int cmdID)
         {

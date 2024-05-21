@@ -62,10 +62,10 @@ namespace ZGame.Indirect
         public GraphicsBuffer BatchDescriptorBuffer;
         public GraphicsBuffer InstanceDataBuffer;
 
-        public BufferPool InputIndexBufferPool;
-        public BufferPool OutputIndexBufferPool;
-        public BufferPool VisibilityBufferPool;
-        public BufferPool IndirectArgsBufferPool;
+        //public BufferPool InputIndexBufferPool;
+        //public BufferPool OutputIndexBufferPool;
+        //public BufferPool VisibilityBufferPool;
+        //public BufferPool IndirectArgsBufferPool;
 
         public static readonly int s_InputIndexBufferID = Shader.PropertyToID("InputIndexBuffer");
         public static readonly int s_OutputIndexBufferID = Shader.PropertyToID("OutputIndexBuffer");
@@ -87,10 +87,10 @@ namespace ZGame.Indirect
             BatchDescriptorBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, setting.BatchCapacity, BatchDescriptor.c_Size);
             InstanceDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int)(setting.InstanceDataMaxSizeBytes) / Utility.c_SizeOfFloat4, Utility.c_SizeOfFloat4);
 
-            InputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
-            OutputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
-            VisibilityBufferPool = new BufferPool(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, Utility.c_SizeOfInt4);
-            IndirectArgsBufferPool = new BufferPool(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, setting.BatchCapacity, GraphicsBuffer.IndirectDrawArgs.size);
+            //InputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
+            //OutputIndexBufferPool = new BufferPool(GraphicsBuffer.Target.Structured | GraphicsBuffer.Target.Counter, setting.MeshletCapacity, Utility.c_SizeOfInt4);
+            //VisibilityBufferPool = new BufferPool(GraphicsBuffer.Target.Structured, setting.InstanceCapacity, Utility.c_SizeOfInt4);
+            //IndirectArgsBufferPool = new BufferPool(GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Structured, setting.BatchCapacity, GraphicsBuffer.IndirectDrawArgs.size);
         }
 
         public void Dispose()
@@ -101,24 +101,24 @@ namespace ZGame.Indirect
             BatchDescriptorBuffer.Dispose();
             InstanceDataBuffer.Dispose();
 
-            InputIndexBufferPool.Dispose();
-            OutputIndexBufferPool.Dispose();
-            VisibilityBufferPool.Dispose();
-            IndirectArgsBufferPool.Dispose();
+            //InputIndexBufferPool.Dispose();
+            //OutputIndexBufferPool.Dispose();
+            //VisibilityBufferPool.Dispose();
+            //IndirectArgsBufferPool.Dispose();
         }
 
         public void RecycleIndexBuffer()
         {
-            InputIndexBufferPool.Recycle();
-            OutputIndexBufferPool.Recycle();
+            //InputIndexBufferPool.Recycle();
+            //OutputIndexBufferPool.Recycle();
         }
 
         public void Recycle()
         {
-            InputIndexBufferPool.Recycle();
-            OutputIndexBufferPool.Recycle();
-            VisibilityBufferPool.Recycle();
-            IndirectArgsBufferPool.Recycle();
+            //InputIndexBufferPool.Recycle();
+            //OutputIndexBufferPool.Recycle();
+            //VisibilityBufferPool.Recycle();
+            //IndirectArgsBufferPool.Recycle();
         }
     }
 }
