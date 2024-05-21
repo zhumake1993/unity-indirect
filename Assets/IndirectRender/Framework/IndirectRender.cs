@@ -37,6 +37,8 @@ namespace ZGame.Indirect
 
         List<IndirectPipeline> _cameraPileines = new List<IndirectPipeline>();
         List<IndirectPipeline> _shadowPileines = new List<IndirectPipeline>();
+        List<JobHandle> _cameraJobHandles = new List<JobHandle>();
+        List<JobHandle> _shadowJobHandles = new List<JobHandle>();
 
         bool _draw = true;
 
@@ -354,7 +356,7 @@ namespace ZGame.Indirect
                 }
 
                 int splitCount = cullingContext.cullingSplits.Length;
-                NativeList<JobHandle> jobHandles = new NativeList<JobHandle>(splitCount + 1, Allocator.Temp);
+                NativeList<JobHandle> jobHandles = new NativeList<JobHandle>(splitCount, Allocator.Temp);
 
                 UnsafeList<GraphicsBufferHandle> visibilityBufferHandles = new UnsafeList<GraphicsBufferHandle>(splitCount, Allocator.TempJob);
                 UnsafeList<GraphicsBufferHandle> indirectArgsBufferHandles = new UnsafeList<GraphicsBufferHandle>(splitCount, Allocator.TempJob);
@@ -388,7 +390,14 @@ namespace ZGame.Indirect
                         Utility.LogError("Unknown BatchCullingViewType");
                 }
 
-                jobHandles.Add(new CreateDrawCmdJob
+                if (cullingContext.viewType == BatchCullingViewType.Camera)
+                    _cameraJobHandles.Add(JobHandle.CombineDependencies(jobHandles.AsArray()));
+                else if (cullingContext.viewType == BatchCullingViewType.Light)
+                    _shadowJobHandles.Add(JobHandle.CombineDependencies(jobHandles.AsArray()));
+                else
+                    Utility.LogError("Unknown BatchCullingViewType");
+
+                JobHandle createDrawCmdJobHandle = new CreateDrawCmdJob
                 {
                     OutputDrawCommands = cullingOutput.drawCommands,
                     Unmanaged = _unmanaged,
@@ -396,11 +405,11 @@ namespace ZGame.Indirect
                     VisibilityBufferHandles = visibilityBufferHandles,
                     IndirectArgsBufferHandles = indirectArgsBufferHandles,
                     SplitCount = splitCount,
-                }.Schedule());
+                }.Schedule();
 
                 _cullingHelper.Dispose();
 
-                return JobHandle.CombineDependencies(jobHandles.AsArray());
+                return createDrawCmdJobHandle;
 #else
                 return new JobHandle();
 #endif
@@ -414,12 +423,20 @@ namespace ZGame.Indirect
             {
                 if (viewType == BatchCullingViewType.Camera)
                 {
+                    foreach(var jobHandle in _cameraJobHandles)
+                        jobHandle.Complete();
+                    _cameraJobHandles.Clear();
+
                     foreach (var pipeline in _cameraPileines)
                         pipeline.Finish();
                     _cameraPileines.Clear();
                 }
                 else if (viewType == BatchCullingViewType.Light)
                 {
+                    foreach (var jobHandle in _shadowJobHandles)
+                        jobHandle.Complete();
+                    _shadowJobHandles.Clear();
+
                     foreach (var pipeline in _shadowPileines)
                         pipeline.Finish();
                     _shadowPileines.Clear();
